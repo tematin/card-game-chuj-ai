@@ -1,0 +1,2 @@
+model_checkpoint_path: "sarsa_run_2_checkpoint_153k"
+all_model_checkpoint_paths: "sarsa_run_2_checkpoint_153k"
