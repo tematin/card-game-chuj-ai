@@ -1,5 +1,6 @@
 import numpy as np
-from game import COLOURS, VALUES, PLAYERS, Card, get_deck
+from game.constants import COLOURS, VALUES, PLAYERS
+from game.game import Card, get_deck
 
 CARD_COUNT = COLOURS * VALUES
 
@@ -144,7 +145,7 @@ def get_highest_pot_card(observation):
 
 
 def get_historically_played_cards(observation):
-    return observation.record.played_cards
+    return observation.tracker.played_cards.played_cards
 
 
 def get_pot_cards(observation):
@@ -156,14 +157,14 @@ def get_pot_value(observation):
 
 
 def get_card_took_flag(observation):
-    return observation.record.took_card
+    return observation.tracker.durch.took_card
 
 
 def get_possible_cards(player):
     def inner_get_possible_cards(observation):
         return [card for card in get_deck()
                 if card not in observation.hand
-                and card not in observation.record.played_cards
-                and not observation.record.missed_colours[(observation.phasing_player + player) % PLAYERS, card.colour]]
+                and card not in observation.tracker.played_cards.played_cards
+                and not observation.tracker.missed_colours.missed_colours[(observation.phasing_player + player) % PLAYERS, card.colour]]
     return inner_get_possible_cards
 

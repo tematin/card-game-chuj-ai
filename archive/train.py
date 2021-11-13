@@ -1,13 +1,10 @@
-from collections import defaultdict
-from models import KerasQPlayer, Sarsa, EpsilonGreedy, GroupedFitter, ReplayFitter,\
-    ReplayMemory, Softmax, TripleTrainer, OrdinaryTrainer, RegularFitter, ExplorationCombiner
-from baselines import LowPlayer, RandomPlayer
-from evaluation_scripts import (monte_carlo_evaluation, get_cached_games,
-                                evaluate_on_cached_games, evaluate_on_cached_games_against,
-                                analyze_game_round)
+from training.models import KerasQPlayer, Sarsa, EpsilonGreedy, GroupedFitter, ReplayFitter,\
+    ReplayMemory, Softmax, TripleTrainer, OrdinaryTrainer, ExplorationCombiner
+from baselines import LowPlayer
+from evaluation_scripts import (get_cached_games,
+                                evaluate_on_cached_games_against)
 from object_storage import get_model, get_embedder
 import keras
-from copy import deepcopy
 
 emb = get_embedder()
 old_model = get_model()

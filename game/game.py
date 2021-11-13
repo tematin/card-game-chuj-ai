@@ -1,106 +1,6 @@
 import numpy as np
-
-COLOURS = 4
-VALUES = 9
-PLAYERS = 3
-CARDS_PER_PLAYER = 12
-
-
-class Card:
-    colour_to_str = {0: 'R',
-                     1: 'Y',
-                     2: 'G',
-                     3: 'B'}
-    value_to_str = {5: 'D',
-                    6: 'H'}
-
-    def __init__(self, colour, value):
-        if not 0 <= value < VALUES:
-            raise ValueError("Wrong value specified")
-        if not 0 <= colour < COLOURS:
-            raise ValueError("Wrong colour specified")
-        self.colour = colour
-        self.value = value
-        self.multiplier = 1
-
-    def is_higher_value(self, other):
-        if other.colour == self.colour:
-            return other.value >= self.value
-        return False
-
-    def __int__(self):
-        return self.colour * 9 + self.value
-
-    def __eq__(self, other):
-        return (self.colour == other.colour) & (self.value == other.value)
-
-    def __lt__(self, other):
-        return int(self) < int(other)
-
-    def __hash__(self):
-        return int(self)
-
-    def get_point_value(self):
-        if self.colour == 0:
-            val = 1
-        elif self.colour == 1 and self.value == 6:
-            val = 4
-        elif self.colour == 2 and self.value == 6:
-            val = 8
-        else:
-            val = 0
-        return val * self.multiplier
-
-    def __repr__(self):
-        colour_code = self.colour_to_letter[self.colour]
-
-        if self.value == 8:
-            value_code = 'A'
-        elif self.value == 7:
-            value_code = 'K'
-        elif self.value == 6:
-            value_code = 'H'
-        elif self.value == 5:
-            value_code = 'D'
-        else:
-            value_code = str(self.value + 6)
-
-        point_value = self.get_point_value()
-        if point_value > 2:
-            point_code = '#'
-        else:
-            point_code = ''
-
-        return point_code + colour_code + value_code
-
-
-class Hand:
-    def __init__(self, hand):
-        if not isinstance(hand, list):
-            raise TypeError("Wrong type instantiation")
-        self.hand = hand
-
-    def remove_card(self, card):
-        self.hand.remove(card)
-
-    def has_colour(self, colour):
-        for card in self.hand:
-            if card.colour == colour:
-                return True
-        return False
-
-    def is_empty(self):
-        return len(self.hand) == 0
-
-    def __getitem__(self, item):
-        return self.hand[item]
-
-    def __iter__(self):
-        for card in self.hand:
-            yield card
-
-    def __repr__(self):
-        return '{' + ', '.join([c.__repr__() for c in self.hand]) + '}'
+from .constants import COLOURS, VALUES, PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
+from .stat_trackers import ScoreTracker, DurchEligibilityTracker, MultiTracker
 
 
 def get_deck():
@@ -145,41 +45,93 @@ def get_eligible_choices(pot, hand):
             return hand.hand
 
 
-class GameRecord:
-    DURCH_SCORE = -10
+class Card:
+    colour_to_str = {0: 'R',
+                     1: 'Y',
+                     2: 'G',
+                     3: 'B'}
+    value_to_str = {5: 'D',
+                    6: 'H',
+                    7: 'K',
+                    8: 'A'}
 
-    def __init__(self):
-        self.history = []
-        self.score = [0, 0, 0]
-        self.took_card = [False, False, False]
-        self.played_cards = []
-        self.missed_colours = np.full((PLAYERS, COLOURS), False)
+    def __init__(self, colour, value):
+        if not 0 <= value < VALUES:
+            raise ValueError("Wrong value specified")
+        if not 0 <= colour < COLOURS:
+            raise ValueError("Wrong colour specified")
+        self.colour = colour
+        self.value = value
+        self.multiplier = 1
 
-    def add_record(self, pot, card, player):
-        if len(pot) > 1:
-            if card.colour != pot.get_pot_colour():
-                self.missed_colours[player, pot.get_pot_colour()] = True
+    def is_higher_value(self, other):
+        if other.colour == self.colour:
+            return other.value >= self.value
+        return False
 
-        if pot.is_full():
-            self.history.append(pot)
-            self.played_cards.extend(pot)
-            pot_owner = pot.get_pot_owner()
-            self.score[pot_owner] += pot.get_point_value()
-            self.took_card[pot_owner] = True
-            if len(self.history) == CARDS_PER_PLAYER:
-                self._finalize_score()
+    def __int__(self):
+        return self.colour * 9 + self.value
 
-    def _finalize_score(self):
-        if sum(self.took_card) == 1:
-            self.score = [0, 0, 0]
-            self.score[np.where(self.took_card)[0][0]] = self.DURCH_SCORE
+    def __eq__(self, other):
+        return (self.colour == other.colour) & (self.value == other.value)
 
-    def can_play_durch(self, player):
-        ret = True
-        for i in range(PLAYERS):
-            if i == player:
-                continue
-            ret = ret & (not self.took_card[i])
+    def __lt__(self, other):
+        return int(self) < int(other)
+
+    def __hash__(self):
+        return int(self)
+
+    def get_point_value(self):
+        if self.colour == 0:
+            val = 1
+        elif self.colour == 1 and self.value == 6:
+            val = 4
+        elif self.colour == 2 and self.value == 6:
+            val = 8
+        else:
+            val = 0
+        return val * self.multiplier
+
+    def __repr__(self):
+        colour_code = self.colour_to_str[self.colour]
+        value_code = self.value_to_str.get(self.colour, str(self.value + 6))
+
+        point_value = self.get_point_value()
+        if point_value > 2:
+            point_code = '#'
+        else:
+            point_code = ''
+
+        return point_code + colour_code + value_code
+
+
+class Hand:
+    def __init__(self, hand):
+        if not isinstance(hand, list):
+            raise TypeError("Wrong type instantiation")
+        self.hand = hand
+
+    def remove_card(self, card):
+        self.hand.remove(card)
+
+    def has_colour(self, colour):
+        for card in self.hand:
+            if card.colour == colour:
+                return True
+        return False
+
+    def is_empty(self):
+        return len(self.hand) == 0
+
+    def __getitem__(self, item):
+        return self.hand[item]
+
+    def __iter__(self):
+        for card in self.hand:
+            yield card
+
+    def __repr__(self):
+        return '{' + ', '.join([c.__repr__() for c in self.hand]) + '}'
 
 
 class Pot:
@@ -230,20 +182,24 @@ class Pot:
 class GameRound:
     def __init__(self, starting_player):
         self.phasing_player = starting_player
-        self.record = GameRecord()
         self.hands = generate_hands()
         self.pot = Pot(starting_player)
         self.phase = ""
         self.end = False
+
+        self.tracker = MultiTracker()
 
     def play(self, card):
         if self.end:
             raise RuntimeError("Game already ended")
         if not is_eligible_choice(self.pot, self.hands[self.phasing_player], card):
             raise RuntimeError("Foul play")
+
         self.hands[self.phasing_player].remove_card(card)
         self.pot.add_card(card)
-        self.record.add_record(self.pot, card, self.phasing_player)
+
+        self.tracker.callback(self.pot, card, self.phasing_player)
+
         if self.pot.is_full():
             self.phasing_player = self.pot.get_pot_owner()
             self.pot = Pot(self.phasing_player)
@@ -254,15 +210,20 @@ class GameRound:
             self.end = True
 
     def observe(self):
-        return Observation(self.record, self.pot, self.hands[self.phasing_player], self.phasing_player)
+        return Observation(self.tracker, self.pot, self.hands[self.phasing_player], self.phasing_player)
 
     def get_points(self):
-        return self.record.score
+        if self.end and sum(self.tracker.durch.took_card) == 1:
+            score = np.full(PLAYERS, 0)
+            score[np.argmax(self.tracker.durch.took_card)] = DURCH_SCORE
+            return score
+        else:
+            return self.tracker.score.score
 
 
 class Observation:
-    def __init__(self, record, pot, hand, phasing_player):
-        self.record = record
+    def __init__(self, tracker, pot, hand, phasing_player):
+        self.tracker = tracker
         self.pot = pot
         self.hand = hand
         self.phasing_player = phasing_player

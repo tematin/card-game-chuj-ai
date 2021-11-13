@@ -1,8 +1,7 @@
-from game import GameRound, PLAYERS
+from game.game import GameRound
 import numpy as np
 from tqdm import tqdm
 from copy import deepcopy
-from itertools import permutations
 
 
 def finish_game(game, players):
@@ -21,58 +20,9 @@ def simulate_game(starting_player, players):
 
 def get_cached_games(count):
     cached_games = []
-    j = 0
     for _ in range(count):
-        j = (j + 1) % PLAYERS
-        cached_games.append(GameRound(j))
+        cached_games.append(GameRound(0))
     return cached_games
-
-
-def evaluate_on_cached_games(cached_games, players):
-    totals = []
-    count = 0
-    for game in tqdm(cached_games):
-        for re_idx, player_order in zip(permutations(range(len(players))),
-                                        permutations(players)):
-            game_copy = deepcopy(game)
-            game_copy = finish_game(game_copy, player_order)
-            points_gained = np.array(game_copy.get_points())
-            totals.append(points_gained[np.argsort(re_idx)])
-            count += 1
-    totals = np.array(totals)
-    return totals.mean(0), totals.std(0, ddof=1) / np.sqrt(count)
-
-
-def evaluate_on_cached_games_against(cached_games, player, adversary, return_score=False):
-    took = []
-    gave = []
-    player_orders = [(player, adversary, adversary),
-                     (adversary, player, adversary),
-                     (adversary, adversary, player)]
-    for game in tqdm(cached_games):
-        for i in range(3):
-            game_copy = deepcopy(game)
-            game_copy = finish_game(game_copy, player_orders[i])
-            points_gained = np.array(game_copy.get_points())
-            took.append(points_gained[i])
-            gave.append(points_gained.sum() - points_gained[i])
-    took = np.array(took).reshape(-1, 3)
-    gave = np.array(gave).reshape(-1, 3)
-    if return_score:
-        return gave.mean() - took.mean(), (gave.mean(1).std() - took.mean(1).std()) / np.sqrt(len(cached_games))
-    else:
-        return took.mean(), took.mean(1).std() / np.sqrt(len(cached_games))
-
-
-def monte_carlo_evaluation(players, iterations):
-    j = 0
-    total = []
-    for _ in tqdm(range(iterations)):
-        j = (j + 1) % PLAYERS
-        game = simulate_game(j, players)
-        total.append(game.get_points())
-    total = np.array(total)
-    return total.mean(0), total.std(0, ddof=1) / np.sqrt(iterations)
 
 
 def analyze_game_round(players, initial_player=0):
@@ -103,3 +53,52 @@ def analyze_game_round(players, initial_player=0):
             print(list(game.record.history[-1]))
             print(game.get_points())
             break
+
+
+class Tester:
+    def __init__(self, game_count):
+        self.game_list = get_cached_games(game_count)
+        self.std_scale = 1 / np.sqrt(game_count)
+
+    def _basic_evaluate(self, player, adversary, verbose=0):
+        points = []
+        game_value = []
+        player_orders = [(player, adversary, adversary),
+                         (adversary, player, adversary),
+                         (adversary, adversary, player)]
+
+        game_list = tqdm(self.game_list) if verbose else self.game_list
+
+        for game in game_list:
+            for i in range(3):
+                game_copy = deepcopy(game)
+                game_copy = finish_game(game_copy, player_orders[i])
+                points_gained = game_copy.get_points()
+
+                points.append(points_gained[i])
+                game_value.append(np.sum(points_gained))
+
+        return np.array(points).reshape(-1, 3), np.array(game_value).reshape(-1, 3)
+
+    def evaluate(self, player, adversary, verbose=0, return_ratio=False):
+        points, game_value = self._basic_evaluate(player, adversary, verbose=verbose)
+
+        avg_points = points.mean()
+        std_points = points.mean(1).std()
+
+        ratio = points / game_value
+        avg_ratio = ratio.mean()
+        std_ratio = ratio.mean(1).std()
+
+        if verbose:
+            print(f"Score Achieved: {avg_points:.2f} +- {self.std_scale * 2 * std_points:.2f}")
+            print(f"Ratio Achieved: {avg_ratio:.1%} +- {self.std_scale * 2 * std_ratio:.1%}")
+            print(f"Durch Made: {(points < 0).sum()}")
+            print(f"Total Durch Made: {(game_value < 0).sum()}")
+            print(f"Average Total Score: {game_value.mean()}")
+            print('')
+
+        if return_ratio:
+            return avg_ratio
+        else:
+            return avg_points

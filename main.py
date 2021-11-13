@@ -1,17 +1,18 @@
-from collections import defaultdict
-from models import KerasQPlayer, TorchQPlayer, Sarsa, Q, EpsilonGreedy, GroupedFitter, ReplayFitter,\
-    ReplayMemory, Softmax, TripleTrainer, OrdinaryTrainer, RegularFitter, ExplorationCombiner
+from training.rewards import OrdinaryReward
+from training.models import QTrainer, QFunction
+from training.schedulers import OrdinaryScheduler, TripleScheduler
+from training.explorers import ExplorationCombiner, EpsilonGreedy, Softmax
+from training.fitters import ReplayFitter, GroupedFitter, ReplayMemory
+from training.updaters import Q
+
 from baselines import LowPlayer, RandomPlayer
-from evaluation_scripts import (monte_carlo_evaluation, get_cached_games,
-                                evaluate_on_cached_games, evaluate_on_cached_games_against,
-                                analyze_game_round)
-from object_storage import get_embedder_v2
 from copy import deepcopy
+from evaluation_scripts import Tester
+from object_storage import get_embedder_v2
 import torch
 from torch import nn
 
 
-emb = get_embedder_v2()
 
 
 class NeuralNetwork(nn.Module):
@@ -58,84 +59,46 @@ class NeuralNetwork(nn.Module):
         return self.final_dense(flat)
 
 
+previous_player = None
+tester = Tester(2000)
 
-
+embedder = get_embedder_v2()
 model = NeuralNetwork(base_conv_filters=40, conv_filters=30, dropout_p=0.2).to("cuda")
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters())
 
-player = TorchQPlayer(emb, model, optimizer, loss_fn, randomized=False)
-
-cached_games = get_cached_games(1500)
-
-trainer = OrdinaryTrainer(explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.94, 0.06]),
-                          fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
+player = QFunction(embedder, model)
+trainer = QTrainer(player, optimizer=optimizer, loss_function=loss_fn,
+                   explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.94, 0.06]),
+                   fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
                                               replay_size=256 - 12 * 8,
                                               fitter=GroupedFitter(8)),
-                          updater=Q())
+                   updater=Q(),
+                   reward=OrdinaryReward(alpha=0.5))
+
+scheduler = OrdinaryScheduler(adversary=player)
+
+
+from game.game import GameRound
+game = GameRound(0)
 while True:
-    trainer.train(player, episodes=30000)
-    ev, _ = evaluate_on_cached_games_against(cached_games, player, LowPlayer())
-    print(ev)
-
-print('---')
-trainer = TripleTrainer(explorer=ExplorationCombiner([Softmax(1), EpsilonGreedy(1)], [0.95, 0.05]),
-                        fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
-                                            replay_size=256 - 12 * 8,
-                                            fitter=GroupedFitter(8)),
-                        updater=Sarsa(0.3))
-
-for i in range(40):
-    trainer.train(player, episodes=7000)
-    ev, _ = evaluate_on_cached_games_against(cached_games, player, LowPlayer())
-    print(ev)
-
-optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
-player = TorchQPlayer(emb, model, optimizer, loss_fn, randomized=False)
-
-print('SGD ---')
-
-for i in range(10):
-    trainer.train(player, episodes=7000)
-    ev, _ = evaluate_on_cached_games_against(cached_games, player, LowPlayer())
-    print(ev)
-
-print('Ord ---')
-trainer = OrdinaryTrainer(explorer=ExplorationCombiner([Softmax(1), EpsilonGreedy(1)], [0.96, 0.04]),
-                          fitter=ReplayFitter(replay_memory=ReplayMemory(4000),
-                                              replay_size=256 - 12 * 8,
-                                              fitter=GroupedFitter(8)),
-                          updater=Sarsa(0.3))
-
-for i in range(5):
-    trainer.train(player, episodes=5000)
-    ev, _ = evaluate_on_cached_games_against(cached_games, player, LowPlayer())
-    print(ev)
+    obs = game.observe()
+    player.play(obs)
+    if game.end:
+        break
 
 
+while True:
+    scheduler.train(trainer, episodes=40000)
 
-for i in range(50):
-    decay = 0.95 ** i
-    trainer = OrdinaryTrainer(explorer=ExplorationCombiner([Softmax(1 * decay), EpsilonGreedy(1)], [1 - 0.04 * decay, 0.04 * decay]),
-                              fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
-                                                  replay_size=256 - 12 * 8,
-                                                  fitter=GroupedFitter(8)),
-                              updater=Sarsa(0.3))
+    print(' ')
+    print('----- Low')
+    tester.evaluate(player, LowPlayer(), verbose=1)
 
-    trainer.train(player, episodes=7000)
-    ev, _ = evaluate_on_cached_games_against(cached_games, player, LowPlayer())
-    print(ev)
+    print('----- Random')
+    tester.evaluate(player, RandomPlayer(), verbose=1)
 
-torch.save(model, 'sarsa_run_3')
-
-
-
-trainer = OrdinaryTrainer(explorer=ExplorationCombiner([Softmax(1), EpsilonGreedy(1)], [0.96, 0.04]),
-                          fitter=GroupedFitter(8),
-                          updater=Sarsa(0.3))
-
-
-X, y = MonteCarlo().get_update_data(episode)
-
-X.X
-
+    if previous_player is not None:
+        print('----- Past Self')
+        tester.evaluate(player, previous_player, verbose=1)
+    previous_player = deepcopy(player)

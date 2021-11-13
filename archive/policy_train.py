@@ -1,18 +1,12 @@
-import copy
-from collections import defaultdict
-from models import KerasQPlayer, TorchQPlayer, Sarsa, EpsilonGreedy, GroupedFitter, ReplayFitter,\
-    ReplayMemory, Softmax, TripleTrainer, OrdinaryTrainer, RegularFitter, ExplorationCombiner
-from baselines import LowPlayer, RandomPlayer
-from evaluation_scripts import (monte_carlo_evaluation, get_cached_games,
-                                evaluate_on_cached_games, evaluate_on_cached_games_against,
-                                analyze_game_round)
+from baselines import LowPlayer
+from evaluation_scripts import (get_cached_games,
+                                evaluate_on_cached_games_against)
 from object_storage import get_embedder_v2
 from copy import deepcopy
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 from game import GameRound
-from models import get_reward, Episode, MonteCarlo, concatenate_embeddings
+from training.models import get_reward, Episode, MonteCarlo, concatenate_embeddings
 import numpy as np
 from tqdm import tqdm
 

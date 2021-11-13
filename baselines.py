@@ -1,6 +1,4 @@
 from collections import Counter
-
-from game import is_eligible_choice
 import numpy as np
 
 
@@ -52,6 +50,7 @@ def get_largest_card(hand, colour=None):
     else:
         idx = np.argmax([c.value for c in hand.hand])
         return hand[idx]
+
 
 def get_highest_points_card(hand, return_value=False):
     vals = [c.get_point_value() for c in hand.hand]
