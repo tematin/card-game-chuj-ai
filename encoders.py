@@ -78,16 +78,25 @@ class LambdaEmbedder:
 
 
 class Lambda2DEmbedder:
-    def __init__(self, card_extractors, other_extractors):
+    def __init__(self, card_extractors, other_extractors, include_values=False):
         self.card_extractors = card_extractors
         self.other_extractors = other_extractors
+        self.include_values = include_values
+
+        if include_values:
+            self.values = np.zeros((COLOURS, VALUES))
+            self.values[0, :] = 1
+            self.values[1, 6] = 4
+            self.values[2, 6] = 8
 
     def get_state_embedding(self, observation):
         return Embeddings(list(self._get_raw_state_embedding(observation)))
 
     def _get_raw_state_embedding(self, observation):
-        card_embedding = np.stack([encode_card_2d(f(observation))
-                                   for f in self.card_extractors])
+        card_embedding = [encode_card_2d(f(observation)) for f in self.card_extractors]
+        if self.include_values:
+            card_embedding.append(self.values)
+        card_embedding = np.stack(card_embedding)
         other_embedding = np.concatenate([np.array(f(observation))
                                           for f in self.other_extractors])
         return np.expand_dims(card_embedding, 0), other_embedding.reshape(1, -1)
@@ -155,9 +164,10 @@ def get_pot_cards(observation):
 def get_pot_value(observation):
     return [observation.pot.get_point_value()]
 
-
 def get_card_took_flag(observation):
-    return observation.tracker.durch.took_card
+        took_card = observation.tracker.durch.took_card
+        player = observation.phasing_player
+        return took_card[player], took_card[(player + 1) % 3], took_card[(player + 2) % 3]
 
 
 def get_possible_cards(player):

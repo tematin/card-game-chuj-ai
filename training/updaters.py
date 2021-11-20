@@ -4,9 +4,7 @@ from game.constants import CARDS_PER_PLAYER
 
 class MonteCarlo:
     def get_update_data(self, episode):
-        X = episode.embeddings
-        y = np.cumsum(episode.rewards).reshape(-1, 1)
-        return X, y
+        return np.cumsum(episode.rewards).reshape(-1, 1)
 
 
 class Sarsa:
@@ -22,17 +20,18 @@ class Sarsa:
         y = []
         length = episode.length
         if self.expected:
-            vals = episode.expected_values
+            values = episode.expected_values
         else:
-            vals = episode.played_values
+            values = episode.played_values
+
         for i in range(length):
             reward = np.sum(episode.rewards[i:] * self.reward_discounts[:(length - i)])
-            value = np.sum(vals[(i + 1):] * self.value_discounts[:(length - i - 1)])
+            value = np.sum(values[(i + 1):] * self.value_discounts[:(length - i - 1)])
             y.append(reward + value)
-        return episode.embeddings, np.array(y).reshape(-1, 1)
+
+        return np.array(y).reshape(-1, 1)
 
 
 class Q:
     def get_update_data(self, episode):
-        y = episode.rewards + np.append(episode.greedy_values[1:], 0)
-        return episode.embeddings, y.reshape(-1, 1)
+        return episode.rewards + np.append(episode.greedy_values[1:], 0)

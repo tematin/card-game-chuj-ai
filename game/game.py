@@ -194,6 +194,8 @@ class GameRound:
             raise RuntimeError("Game already ended")
         if not is_eligible_choice(self.pot, self.hands[self.phasing_player], card):
             raise RuntimeError("Foul play")
+        if self.phasing_player == -1:
+            raise RuntimeError("Trick not cleared")
 
         self.hands[self.phasing_player].remove_card(card)
         self.pot.add_card(card)
@@ -201,16 +203,25 @@ class GameRound:
         self.tracker.callback(self.pot, card, self.phasing_player)
 
         if self.pot.is_full():
-            self.phasing_player = self.pot.get_pot_owner()
-            self.pot = Pot(self.phasing_player)
+            self.phasing_player = -1
         else:
             self.phasing_player = advance_player(self.phasing_player)
+
+    def clear(self):
+        if self.phasing_player != -1:
+            raise RuntimeError("Trick not full")
+
+        self.phasing_player = self.pot.get_pot_owner()
+        self.pot = Pot(self.phasing_player)
 
         if self.hands[self.phasing_player].is_empty():
             self.end = True
 
     def observe(self):
-        return Observation(self.tracker, self.pot, self.hands[self.phasing_player], self.phasing_player)
+        if self.phasing_player == -1:
+            return Observation(self.tracker, self.pot, None, self.phasing_player)
+        else:
+            return Observation(self.tracker, self.pot, self.hands[self.phasing_player], self.phasing_player)
 
     def get_points(self):
         if self.end and sum(self.tracker.durch.took_card) == 1:
@@ -227,4 +238,8 @@ class Observation:
         self.pot = pot
         self.hand = hand
         self.phasing_player = phasing_player
-        self.eligible_choices = get_eligible_choices(pot, hand)
+        if phasing_player != -1:
+            self.eligible_choices = get_eligible_choices(pot, hand)
+        else:
+            self.eligible_choices = []
+

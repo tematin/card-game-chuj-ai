@@ -6,9 +6,12 @@ from copy import deepcopy
 
 def finish_game(game, players):
     while not game.end:
-        observation = game.observe()
-        card = players[game.phasing_player].play(observation)
-        game.play(card)
+        if game.phasing_player == -1:
+            game.clear()
+        else:
+            observation = game.observe()
+            card = players[game.phasing_player].play(observation)
+            game.play(card)
     return game
 
 
@@ -56,7 +59,9 @@ def analyze_game_round(players, initial_player=0):
 
 
 class Tester:
-    def __init__(self, game_count):
+    def __init__(self, game_count, seed=0):
+        if seed is not None:
+            np.random.seed(seed)
         self.game_list = get_cached_games(game_count)
         self.std_scale = 1 / np.sqrt(game_count)
 
