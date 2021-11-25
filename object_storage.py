@@ -24,7 +24,7 @@ def get_embedder_v2():
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2, in_channels=7):
+    def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2, in_channels=6):
         super(NeuralNetwork, self).__init__()
         self.by_parts = nn.Sequential(
             nn.Conv2d(in_channels=in_channels, out_channels=base_conv_filters, kernel_size=(1, 3)),

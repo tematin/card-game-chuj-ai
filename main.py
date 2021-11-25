@@ -24,19 +24,19 @@ loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam
 
 player = QFunction(embedder, model)
-with open('models/baseline.dill', 'rb') as f:
-    player = dill.load(f)
-player.embedder = embedder
+#with open('models/baseline.dill', 'rb') as f:
+#    player = dill.load(f)
+#player.embedder = embedder
 
 trainer = QTrainer(player, optimizer=optimizer, loss_function=loss_fn,
-                   explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.94, 0.06]),
+                   explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.5, 0.5]),
                    fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
                                               replay_size=256 - 12 * 8,
                                               fitter=GroupedFitter(8)),
                    updater=Q(),
                    reward=OrdinaryReward(alpha=0.5))
 
-previous_player = deepcopy(player)
+#previous_player = deepcopy(player)
 
 scores = []
 scheduler = OrdinaryScheduler(adversary=player)
@@ -53,7 +53,3 @@ for i in range(10):
     #    print('----- Past Self')
     #    tester.evaluate(player, previous_player, verbose=1)
     #previous_player = deepcopy(player)
-
-player.q_function.by_value[1].requires_grad_(False)
-player.q_function.by_colour[1].requires_grad_(False)
-player.q_function.by_parts[1].requires_grad_(False)

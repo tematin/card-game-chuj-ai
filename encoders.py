@@ -153,6 +153,10 @@ def get_highest_pot_card(observation):
     return [observation.pot.get_highest_card()]
 
 
+def get_first_pot_card(observation):
+    return [observation.pot.get_first_card()]
+
+
 def get_historically_played_cards(observation):
     return observation.tracker.played_cards.played_cards
 
@@ -164,6 +168,7 @@ def get_pot_cards(observation):
 def get_pot_value(observation):
     return [observation.pot.get_point_value()]
 
+
 def get_card_took_flag(observation):
         took_card = observation.tracker.durch.took_card
         player = observation.phasing_player
@@ -171,6 +176,15 @@ def get_card_took_flag(observation):
 
 
 def get_possible_cards(player):
+    def inner_get_possible_cards(observation):
+        return [card for card in get_deck()
+                if card not in observation.hand
+                and card not in observation.tracker.played_cards.played_cards
+                and not observation.tracker.missed_colours.missed_colours[(observation.phasing_player + player) % PLAYERS, card.colour]]
+    return inner_get_possible_cards
+
+
+def get_state_possible_cards(player):
     def inner_get_possible_cards(observation):
         return [card for card in get_deck()
                 if card not in observation.hand

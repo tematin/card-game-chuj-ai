@@ -46,10 +46,10 @@ def get_eligible_choices(pot, hand):
 
 
 class Card:
-    colour_to_str = {0: 'R',
-                     1: 'Y',
-                     2: 'G',
-                     3: 'B'}
+    colour_to_str = {0: '♥',
+                     1: '☘',
+                     2: '⛊',
+                     3: '⚈'}
     value_to_str = {5: 'D',
                     6: 'H',
                     7: 'K',
@@ -171,6 +171,11 @@ class Pot:
             return None
         return self._cards[self._highest_card]
 
+    def get_first_card(self):
+        if self.is_empty():
+            return None
+        return self._cards[0]
+
     def __iter__(self):
         for card in self._cards:
             yield card
@@ -186,42 +191,59 @@ class GameRound:
         self.pot = Pot(starting_player)
         self.phase = ""
         self.end = False
+        self.trick_end = False
 
         self.tracker = MultiTracker()
 
-    def play(self, card):
+    def play(self, card=None):
         if self.end:
             raise RuntimeError("Game already ended")
-        if not is_eligible_choice(self.pot, self.hands[self.phasing_player], card):
-            raise RuntimeError("Foul play")
-        if self.phasing_player == -1:
-            raise RuntimeError("Trick not cleared")
 
+        if self.trick_end:
+            if card is not None:
+                raise RuntimeError("Trick ended no cards allowed")
+            self._clear()
+        else:
+            if card is None:
+                raise RuntimeError("Card required")
+            if not is_eligible_choice(self.pot, self.hands[self.phasing_player], card):
+                raise RuntimeError("Foul play")
+            self._play(card)
+
+    def _play(self, card):
         self.hands[self.phasing_player].remove_card(card)
         self.pot.add_card(card)
 
         self.tracker.callback(self.pot, card, self.phasing_player)
 
         if self.pot.is_full():
-            self.phasing_player = -1
+            self.trick_end = True
+            self.phasing_player = 0
         else:
             self.phasing_player = advance_player(self.phasing_player)
 
-    def clear(self):
-        if self.phasing_player != -1:
-            raise RuntimeError("Trick not full")
+    def _clear(self):
+        if self.phasing_player == 2:
+            self.phasing_player = self.pot.get_pot_owner()
+            self.pot = Pot(self.phasing_player)
 
-        self.phasing_player = self.pot.get_pot_owner()
-        self.pot = Pot(self.phasing_player)
+            self.trick_end = False
 
-        if self.hands[self.phasing_player].is_empty():
-            self.end = True
+            if self.hands[self.phasing_player].is_empty():
+                self.end = True
+        else:
+            self.phasing_player = advance_player(self.phasing_player)
 
     def observe(self):
-        if self.phasing_player == -1:
-            return Observation(self.tracker, self.pot, None, self.phasing_player)
-        else:
-            return Observation(self.tracker, self.pot, self.hands[self.phasing_player], self.phasing_player)
+        return Observation(tracker=self.tracker,
+                           pot=self.pot,
+                           hand=self.hands[self.phasing_player],
+                           phasing_player=self.phasing_player,
+                           right_hand=self.hands[advance_player(self.phasing_player)],
+                           left_hand=self.hands[advance_player(self.phasing_player, 2)])
+
+    def requires_action(self):
+        return not self.trick_end
 
     def get_points(self):
         if self.end and sum(self.tracker.durch.took_card) == 1:
@@ -233,13 +255,17 @@ class GameRound:
 
 
 class Observation:
-    def __init__(self, tracker, pot, hand, phasing_player):
+    def __init__(self, tracker, pot, hand, phasing_player, right_hand, left_hand):
         self.tracker = tracker
         self.pot = pot
         self.hand = hand
         self.phasing_player = phasing_player
-        if phasing_player != -1:
-            self.eligible_choices = get_eligible_choices(pot, hand)
+        if pot.is_full():
+            self.eligible_choices = [None]
         else:
-            self.eligible_choices = []
+            self.eligible_choices = get_eligible_choices(pot, hand)
+
+        self.right_hand = right_hand
+        self.left_hand = left_hand
+
 

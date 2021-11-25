@@ -6,12 +6,12 @@ from copy import deepcopy
 
 def finish_game(game, players):
     while not game.end:
-        if game.phasing_player == -1:
-            game.clear()
-        else:
+        if game.requires_action():
             observation = game.observe()
             card = players[game.phasing_player].play(observation)
             game.play(card)
+        else:
+            game.play()
     return game
 
 
@@ -31,29 +31,33 @@ def get_cached_games(count):
 def analyze_game_round(players, initial_player=0):
     game = GameRound(initial_player)
     while True:
-        observation = game.observe()
-        card = players[game.phasing_player].play(observation)
-        if game.phasing_player == 0:
-            try:
-                print(list(game.record.history[-1]))
-            except Exception as e:
-                pass
-            print('')
-            print('')
-            print("Hand", np.sort(list(game.hands[0])))
-            print("Pot", list(game.pot))
-            print("Choice Made", card)
-            print("Adversary Hands")
-            print(np.sort(list(game.hands[1])))
-            print(np.sort(list(game.hands[2])))
-            print('---')
-            print(game.get_points())
-            idx = np.argsort(observation.eligible_choices)
-            print(players[game.phasing_player].get_embedding_value_pair(observation)[1][idx])
+        if game.requires_action():
+            observation = game.observe()
+            card = players[game.phasing_player].play(observation)
+            if game.phasing_player == 0:
+                try:
+                    print(list(game.tracker.history.history[-1]))
+                except Exception as e:
+                    pass
+                print('')
+                print('')
+                print("Hand", np.sort(list(game.hands[0])))
+                print("Pot", list(game.pot))
+                print("Choice Made", card)
+                print("Adversary Hands")
+                print(np.sort(list(game.hands[1])))
+                print(np.sort(list(game.hands[2])))
+                print('---')
+                print(game.get_points())
+                idx = np.argsort(observation.eligible_choices)
+                print(players[game.phasing_player].get_embedding_value_pair(observation)[1][idx])
 
-        game.play(card)
+            game.play(card)
+
+        else:
+            game.play()
+
         if game.end:
-            print(list(game.record.history[-1]))
             print(game.get_points())
             break
 
@@ -107,3 +111,4 @@ class Tester:
             return avg_ratio
         else:
             return avg_points
+

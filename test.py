@@ -83,30 +83,30 @@ class QVTrainer:
         return id
 
     def trainable_play(self, observation, episode_id):
-        state_embedding, state_value = self.v.get_embedding_value_pair(observation)
         action_embeddings, action_values = self.q.get_embedding_value_pair(observation)
 
         p = self.explorer.get_probabilities(action_values)
         idx = np.random.choice(len(action_values), p=p)
 
-        reward = self.reward.get_reward(observation)
+        self.last_reward = self.reward.get_reward(observation)
+        self.last_embedding = action_embeddings[[idx]]
 
-        self.episodes[episode_id][0].add(embeddings=action_embeddings[[idx]],
-                                         reward=reward,
+        return observation.eligible_choices[idx]
+
+    def clear_game(self, observation, episode_id):
+        state_embedding, state_value = self.v.get_embedding_value_pair(observation)
+
+        self.episodes[episode_id][0].add(embeddings=self.last_embedding,
+                                         reward=self.last_reward,
                                          greedy_value=state_value,
                                          expected_value=state_value,
                                          played_value=state_value)
 
         self.episodes[episode_id][1].add(embeddings=state_embedding,
-                                         reward=reward,
+                                         reward=self.last_reward,
                                          greedy_value=state_value,
                                          expected_value=state_value,
                                          played_value=state_value)
-
-        return observation.eligible_choices[idx]
-
-    def clear_game(self, observation, episode_id):
-
 
     def finalize_episode(self, game, episode_id):
         action_episode, state_episode = self.episodes[episode_id]
@@ -133,8 +133,8 @@ class QVTrainer:
 
 action_embedder = get_embedder_v2()
 state_embedder = Lambda2DEmbedder([get_hand,
-                                   get_possible_cards(1),
-                                   get_possible_cards(2)],
+                                   get_state_possible_cards(1),
+                                   get_state_possible_cards(2)],
                                    [get_card_took_flag])
 
 q = QFunction(action_embedder, NeuralNetwork().to("cuda"))
@@ -151,8 +151,8 @@ trainer = QVTrainer(q, v, optimizer=optimizer, loss_function=loss_fn,
                     v_fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
                                           replay_size=256 - 12 * 8,
                                           fitter=GroupedFitter(8)),
-                    q_updater=Sarsa(0.7),
-                    v_updater=Sarsa(0.7),
+                    q_updater=Sarsa(0.4),
+                    v_updater=Sarsa(0.4),
                     reward=OrdinaryReward(alpha=0.5))
 
 scheduler = OrdinaryScheduler(adversary=q)
@@ -167,6 +167,9 @@ episode_id = trainer.start_episode(0)
 game = GameRound(starting_player)
 while True:
     observation = game.observe()
+    if game.phasing_player == -1:
+        trainer.clear_game(observation, episode_id)
+        game.clear()
     if game.phasing_player == 0:
         card = trainer.trainable_play(observation, episode_id)
     else:

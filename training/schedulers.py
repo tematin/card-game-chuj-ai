@@ -14,15 +14,16 @@ class OrdinaryScheduler:
             game = GameRound(starting_player)
             while True:
                 observation = game.observe()
-                if game.phasing_player == -1:
-                    trainer.clear_game(observation, episode_id)
-                    game.clear()
-                else:
+                if game.requires_action():
                     if game.phasing_player == 0:
                         card = trainer.trainable_play(observation, episode_id)
                     else:
                         card = self.adversary.play(observation)
                     game.play(card)
+                else:
+                    trainer.clear_game(observation, episode_id)
+                    game.play()
+
                 if game.end:
                     trainer.finalize_episode(game, episode_id)
                     break
