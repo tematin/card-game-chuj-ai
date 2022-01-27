@@ -1,6 +1,6 @@
 import numpy as np
 from game.constants import COLOURS, VALUES, PLAYERS
-from game.game import Card, get_deck
+from game.game import Card, get_deck, advance_player
 
 CARD_COUNT = COLOURS * VALUES
 
@@ -167,6 +167,12 @@ def get_pot_cards(observation):
 
 def get_pot_value(observation):
     return [observation.pot.get_point_value()]
+
+
+def get_current_score(observation):
+    return [observation.tracker.score.score[observation.phasing_player],
+            observation.tracker.score.score[advance_player(observation.phasing_player)],
+            observation.tracker.score.score[advance_player(observation.phasing_player, 2)]]
 
 
 def get_card_took_flag(observation):
