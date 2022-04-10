@@ -10,7 +10,7 @@ from training.updaters import Q, Sarsa
 from encoders import Lambda2DEmbedder, get_hand, get_pot_cards, get_first_pot_card, get_pot_value, get_card_took_flag, \
     concatenate_embeddings, get_current_score, LambdaEmbedder
 from object_storage import get_model
-
+from sklearn.preprocessing import StandardScaler
 from matplotlib import pyplot as plt
 from baselines import LowPlayer, RandomPlayer
 from copy import deepcopy
@@ -51,123 +51,6 @@ def generate_datapoints(player, reward, embedder, episodes):
         ret_y.append(y)
 
     return concatenate_embeddings(ret_X), np.concatenate(ret_y)
-
-
-class DropoutNeuralNetwork(nn.Module):
-    def __init__(self, base_conv_filters=10, conv_filters=10, dropout_p=0.2, in_channels=5):
-        super().__init__()
-        self.by_parts = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=base_conv_filters, kernel_size=(1, 3)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-        self.by_colour = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(1, 7)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-        self.by_value = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(4, 3)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-
-        self.final_dense = nn.Sequential(
-            nn.LazyLinear(200),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(200),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(1)
-        )
-
-    def forward(self, card_encoding, rest_encoding):
-        by_parts = self.by_parts(card_encoding)
-        by_colour = torch.flatten(self.by_colour(by_parts), start_dim=1)
-        by_value = torch.flatten(self.by_value(by_parts), start_dim=1)
-
-        flat = torch.cat([by_colour, by_value, rest_encoding], dim=1)
-        return self.final_dense(flat)
-
-
-class BatchNormNeuralNetwork(nn.Module):
-    def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2, in_channels=5):
-        super().__init__()
-        self.by_parts = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=base_conv_filters, kernel_size=(1, 3)),
-            nn.LazyBatchNorm1d(),
-            nn.ReLU()
-        )
-        self.by_colour = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(1, 7)),
-            nn.LazyBatchNorm1d(),
-            nn.ReLU()
-        )
-        self.by_value = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(4, 3)),
-            nn.LazyBatchNorm1d(),
-            nn.ReLU()
-        )
-
-        self.final_dense = nn.Sequential(
-            nn.LazyLinear(200),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(200),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(1)
-        )
-
-    def forward(self, card_encoding, rest_encoding):
-        by_parts = self.by_parts(card_encoding)
-        by_colour = torch.flatten(self.by_colour(by_parts), start_dim=1)
-        by_value = torch.flatten(self.by_value(by_parts), start_dim=1)
-
-        flat = torch.cat([by_colour, by_value, rest_encoding], dim=1)
-        return self.final_dense(flat)
-
-
-class NeuralNetwork(nn.Module):
-    def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2, in_channels=5):
-        super(NeuralNetwork, self).__init__()
-        self.by_parts = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=base_conv_filters, kernel_size=(1, 3)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-        self.by_colour = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(1, 7)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-        self.by_value = nn.Sequential(
-            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters, kernel_size=(4, 3)),
-            nn.Dropout2d(dropout_p),
-            nn.ReLU()
-        )
-
-        self.final_dense = nn.Sequential(
-            nn.LazyLinear(400),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(300),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(200),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(1)
-        )
-
-    def forward(self, card_encoding, rest_encoding):
-        by_parts = self.by_parts(card_encoding)
-        by_colour = torch.flatten(self.by_colour(by_parts), start_dim=1)
-        by_value = torch.flatten(self.by_value(by_parts), start_dim=1)
-
-        flat = torch.cat([by_colour, by_value, rest_encoding], dim=1)
-        return self.final_dense(flat)
 
 
 def generate_indexes(size, batch_size):
@@ -215,72 +98,37 @@ def evaluate(X, y, model, loss_fn):
         loss = loss_fn(pred, batch_y)
         losses += loss.item() * len(idx)
     losses /= size
-    return losses,
+    return losses
 
 
+class SimplifiedReward:
+    def __init__(self, alpha):
+        self.alpha = alpha
 
-embedder = Lambda2DEmbedder([get_hand,
-                             get_pot_cards,
-                             get_first_pot_card,
-                             lambda x: x.right_hand,
-                             lambda x: x.left_hand],
-                            [get_pot_value,
-                             get_card_took_flag,
-                             get_current_score])
+    def get_reward(self, observation):
+        score = observation.tracker.score.score
+        return self._reward_from_score(score, observation.phasing_player)
 
-simple_embedder = LambdaEmbedder([get_hand,
-                                  get_pot_cards,
-                                  get_first_pot_card,
-                                  lambda x: x.right_hand,
-                                  lambda x: x.left_hand],
-                                 [get_pot_value,
-                                  get_card_took_flag,
-                                  get_current_score])
+    def finalize_reward(self, game, player):
+        score = game.get_points()
+        return self._reward_from_score(score, player)
+
+    def _reward_from_score(self, score, player):
+        took = score[player]
+        given = sum(score) - score[player]
+        if took == -10:
+            took = 21
+            given = 0
+        elif given == -10:
+            took = 0
+            given = 21
+        return self.alpha * given - (1 - self.alpha) * took
+
+
 
 player = LowPlayer()
-reward = OrdinaryReward(0.5)
-
-np.random.seed(10)
-val_X, val_y = generate_datapoints(player, reward, embedder, episodes=10000)
-
-model = NeuralNetwork(base_conv_filters=60, conv_filters=60).to("cuda")
+reward = SimplifiedReward(0)
 loss_fn = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters())
-
-while True:
-    train_X, train_y = generate_datapoints(player, reward, embedder, episodes=20000)
-    train(train_X, train_y, model, optimizer, loss_fn, batch_size=2**10, epochs=1)
-    print(evaluate(train_X, train_y, model, loss_fn))
-    print(evaluate(val_X, val_y, model, loss_fn))
-
-None
-
-np.random.seed(1)
-eye_X, eye_y = generate_datapoints(player, reward, embedder, episodes=50)
-eye_X2, eye_y2 = generate_datapoints(player, reward, embedder, episodes=50)
-
-X = to_cuda_list(eye_X)
-y = torch.tensor(eye_y).float().reshape(-1, 1).to("cuda")
-pred = model(*X)
-
-pred = pred.to("cpu").detach().numpy().flatten()
-true = eye_y
-
-
-cards_left = eye_X.X[0].sum((2, 3))[:, 0]
-points_left = eye_X.X[1][:, -3:].sum(1)
-
-res = (pred - true)
-
-plt.scatter(cards_left, res, alpha=0.2)
-plt.scatter(points_left, res, alpha=0.2)
-
-idx = np.where(res > 8)[0]
-
-eye_X[idx[0]].X
-
-from evaluation_scripts import finish_game
-
 
 simple_embedder = LambdaEmbedder([get_hand,
                                   lambda x: x.right_hand,
@@ -288,9 +136,10 @@ simple_embedder = LambdaEmbedder([get_hand,
                                  [])
 
 np.random.seed(1)
-train_X, train_y = generate_datapoints(player, reward, simple_embedder, episodes=100000)
+train_X, train_y = generate_datapoints(player, reward, simple_embedder, episodes=300000)
 np.random.seed(10)
 val_X, val_y = generate_datapoints(player, reward, simple_embedder, episodes=10000)
+
 
 
 mask = train_X.X.sum(1) == 36
@@ -315,33 +164,99 @@ train_y = train_y - train_y.mean()
 
 val_y = (val_y / std) - mean
 
-class FlatNeuralNetwork(nn.Module):
-    def __init__(self, dropout_p=0.2):
+class DropoutNeuralNetwork(nn.Module):
+    def __init__(self, base_conv_filters=10, conv_filters=10, dropout_p=0.2, in_channels=3):
         super().__init__()
+        self.by_parts = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=base_conv_filters,
+                      kernel_size=(1, 5), padding='same'),
+            nn.Dropout2d(dropout_p),
+            nn.ReLU()
+        )
+        self.by_colour = nn.Sequential(
+            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters,
+                      kernel_size=(1, 9), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.ReLU()
+        )
+        self.by_value = nn.Sequential(
+            nn.Conv2d(in_channels=base_conv_filters, out_channels=conv_filters,
+                      kernel_size=(4, 3), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.ReLU()
+        )
+
+        self.by_pure_colour = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=conv_filters,
+                      kernel_size=(1, 9), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.ReLU()
+        )
+
         self.final_dense = nn.Sequential(
             nn.LazyLinear(400),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(300),
-            nn.Dropout(dropout_p),
-            nn.ReLU(),
-            nn.LazyLinear(300),
             nn.Dropout(dropout_p),
             nn.ReLU(),
             nn.LazyLinear(200),
             nn.Dropout(dropout_p),
             nn.ReLU(),
+            nn.LazyLinear(200),
+            nn.Dropout(dropout_p),
+            nn.ReLU(),
+            nn.LazyLinear(200),
+            nn.Dropout(dropout_p),
+            nn.ReLU(),
+            nn.LazyLinear(200),
+            nn.Dropout(dropout_p),
+            nn.ReLU(),
+
             nn.LazyLinear(1)
         )
 
-    def forward(self, X):
-        return self.final_dense(X)
+    def forward(self, card_encoding):
+        by_parts = self.by_parts(card_encoding)
+        by_colour = torch.flatten(self.by_colour(by_parts), start_dim=1)
+        by_value = torch.flatten(self.by_value(by_parts), start_dim=1)
+        by_pure_colour = torch.flatten(self.by_pure_colour(card_encoding), start_dim=1)
+
+        flat = torch.cat([by_colour, by_value, by_pure_colour], dim=1)
+        return self.final_dense(flat)
 
 
-model = FlatNeuralNetwork(0.4).to("cuda")
-optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.01)
+train_X.X = train_X.X.reshape(-1, 3, 4, 9)
+val_X.X = val_X.X.reshape(-1, 3, 4, 9)
+
+
+np.save('train_X.npz', train_X.X)
+np.save('train_y.npz', train_y)
+np.save('valid_X.npz', val_X.X)
+np.save('valid_y.npz', val_y)
+
+with open('scaler.pickle', 'wb') as f:
+    pickle.dump(sc_X, f)
+
+
+model = DropoutNeuralNetwork(base_conv_filters=15, conv_filters=60, dropout_p=0.4).to("cuda")
+optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.04)
 optimizer = torch.optim.SGD(model.parameters(), lr=0.003, momentum=0.9, weight_decay=0.01)
 optimizer = torch.optim.RMSProp(model.parameters(), lr=0.003, momentum=0.9, weight_decay=0.01)
+
+
+size = train_y.shape[0]
+X = to_cuda_list(train_X)
+y = torch.tensor(train_y).float().reshape(-1, 1).to("cuda")
+
+for idx in generate_indexes(size, 32):
+    batch_X = [x[idx] for x in X]
+    batch_y = y[idx]
+
+    pred = model(*batch_X)
+    loss = loss_fn(pred, batch_y)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
 
 
 while True:
@@ -353,7 +268,7 @@ while True:
 X = to_cuda_list(val_X)
 pred = model(*X)
 
-plt.scatter(pred.cpu().detach().numpy().flatten(), val_y, alpha=0.1)
+plt.scatter(pred.cpu().detach().numpy().flatten(), val_y, alpha=0.01)
 
 train_y.mean()
 
