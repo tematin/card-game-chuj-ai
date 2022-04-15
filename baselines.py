@@ -11,6 +11,7 @@ class LowPlayer:
     def play(self, observation):
         pot = observation.pot
         hand = observation.hand
+        #hand.hand = list(np.sort(hand.hand))
         if pot.is_empty():
             smallest_colour = get_smallest_colour(hand)
             return get_smallest_card(hand, smallest_colour)

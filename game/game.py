@@ -14,7 +14,7 @@ def get_deck():
 def generate_hands():
     deck = get_deck()
     np.random.shuffle(deck)
-    return [Hand(deck[i:(i + CARDS_PER_PLAYER)])
+    return [Hand(list(np.sort(deck[i:(i + CARDS_PER_PLAYER)])))
             for i in range(0, CARDS_PER_PLAYER * PLAYERS, CARDS_PER_PLAYER)]
 
 

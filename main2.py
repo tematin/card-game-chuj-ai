@@ -39,6 +39,7 @@ def generate_episode(player, reward, embedder):
     rewards = [reward.finalize_reward(game, i) for i in range(3)]
     X = concatenate_embeddings(embeddings[0] + embeddings[1] + embeddings[2])
     y = np.repeat(rewards, 12)
+
     return X, y
 
 
@@ -271,4 +272,40 @@ pred = model(*X)
 plt.scatter(pred.cpu().detach().numpy().flatten(), val_y, alpha=0.01)
 
 train_y.mean()
+
+
+
+np.random.seed(10)
+Xr, yr, gamer = generate_episode(player, reward, embedder)
+
+mask = Xr.X.sum(1) == 36
+Xr = Xr[mask]
+yr = yr[mask]
+
+one_emb = Xr.X.reshape(3, 4, 9)
+
+
+def generate_episode(player, reward, embedder):
+    game = GameRound(0)
+    embeddings = [[], [], []]
+
+    while not game.end:
+        if game.trick_end:
+            game.play()
+            continue
+        obs = game.observe()
+        emb = embedder.get_state_embedding(obs)
+        embeddings[obs.phasing_player].append(emb)
+        card = player.play(obs)
+        game.play(card)
+
+    rewards = [reward.finalize_reward(game, i) for i in range(3)]
+    X = concatenate_embeddings(embeddings[0] + embeddings[1] + embeddings[2])
+    y = np.repeat(rewards, 12)
+
+    return X, y, game
+
+
+gamer.tracker.score.score
+gamer.tracker.history.history[0]._cards
 

@@ -194,7 +194,7 @@ class ResNeuralNetwork(nn.Module):
 
         for _ in range(depth):
             layer = ConvResNet(channel_size=40, kernel_width=3, padding='same',
-                           dropout_p=dropout_p, leak=leak)
+                               dropout_p=dropout_p, leak=leak)
             convolution_layer.append(layer)
 
         layer = nn.Sequential(
@@ -204,6 +204,40 @@ class ResNeuralNetwork(nn.Module):
             nn.LeakyReLU(leak)
         )
         convolution_layer.append(layer)
+
+        self.convolution_layer = nn.Sequential(*convolution_layer)
+
+        dense_layer = []
+        for size in dense_sizes:
+            layer = nn.Sequential(
+                nn.LazyLinear(size),
+                nn.Dropout(dropout_p),
+                nn.LeakyReLU(leak)
+            )
+            dense_layer.append(layer)
+        dense_layer.append(nn.LazyLinear(1))
+
+        self.final_dense = nn.Sequential(*dense_layer)
+
+    def forward(self, card_encoding):
+        conv = torch.flatten(self.convolution_layer(card_encoding), start_dim=1)
+        return self.final_dense(conv)
+
+
+class AlternativeResNeuralNetwork(nn.Module):
+    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+        super().__init__()
+        convolution_layer = []
+
+        for _ in range(depth):
+            layer = ConvResNet(channel_size=40, kernel_width=3, padding='same',
+                               dropout_p=dropout_p, leak=leak)
+            convolution_layer.append(layer)
+
+        for _ in range(depth):
+            layer = ConvResNet(channel_size=40, kernel_width=9, padding='valid',
+                               dropout_p=dropout_p, leak=leak)
+            convolution_layer.append(layer)
 
         self.convolution_layer = nn.Sequential(*convolution_layer)
 
@@ -265,7 +299,7 @@ comparator = SuiteComparator()
 
 comparator.add(
     suite=TrainSuite(
-        model=ResNeuralNetwork(dense_sizes=[200, 200, 200, 200], depth=4).to("cuda"),
+        model=ResNeuralNetwork(dense_sizes=[200, 200, 200, 200], depth=6).to("cuda"),
         optimizer=torch.optim.AdamW,
         optimizer_kwargs={'weight_decay': 0.04},
         loss_fn=loss_fn,
@@ -276,39 +310,121 @@ comparator.add(
 
 comparator.add(
     suite=TrainSuite(
-        model=FullResNeuralNetwork(dense_sizes=[[200, 200], [200, 200]], depth=4).to("cuda"),
+        model=AlternativeResNeuralNetwork(dense_sizes=[200, 200, 200, 200], depth=2).to("cuda"),
         optimizer=torch.optim.AdamW,
         optimizer_kwargs={'weight_decay': 0.04},
         loss_fn=loss_fn,
         dataset=dataset
     ),
-    name="longer_model_6+6"
+    name="longer_model"
 )
 
-comparator.train_to_epochs(3)
+comparator.train_to_epochs(10)
 comparator.plot_compare()
 
-comparator.train_to_epochs(30)
+comparator.train_to_epochs(60)
 comparator.plot_compare()
 
 
-#model = NeuralNetwork(base_conv_filters=20, conv_filters=15, dropout_p=0.1,
-#                      depth=10, girth=150, in_channels=4, leak=0.01).to("cuda")
-
-#model = NewNeuralNetwork(dense_sizes=[200, 200, 200],
-#                         channel_sizes=[20, 20, 20, 20, 20, 20, 20],
-#                         kernel_widths=[3, 3, 3, 3, 3, 3, 9],
-#                         paddings=['same', 'same', 'same', 'same', 'same', 'same', 'valid'],
-#                         dropout_p=0.1, leak=0.01).to("cuda")
-
-#model = ResNeuralNetwork(dense_sizes=[200, 200, 200],
-#                         depth=4).to("cuda")
-
-#optimizer = torch.optim.AdamW(model.parameters(), weight_decay=0.04)
-#optimizer = torch.optim.SGD(model.parameters(), lr=0.003, weight_decay=0.02)
-#optimizer = torch.optim.RMSProp(model.parameters(), lr=0.003, momentum=0.9, weight_decay=0.01)
+model = comparator.suites[0].model
+second_model = comparator.suites[1].model
 
 
+unscaled_dataset = load_data(scale_X=False, scale_y=False)
+
+X = dataset.valid_X
+X_uns = unscaled_dataset.valid_X
+y_true = dataset.valid_y
+unscaled_dataset.valid_y
+
+model.train(False)
+
+cuda_X = torch.tensor(X).float().to("cuda")
+y_pred = model(cuda_X).detach().to("cpu").numpy().flatten()
+y_pred_2 = second_model(cuda_X).detach().to("cpu").numpy().flatten()
+
+def descale(x):
+    ma = 1.2288641831570022
+    mi = -2.567583087675631
+    x -= mi
+    x *= 21 / (ma - mi)
+    return 21 - x
+
+y_pred = descale(y_pred)
+
+y_true = descale(y_true)
+
+plt.scatter(y_true, y_pred, alpha=0.05)
+
+res = y_pred - y_true
 
 
 
+idx = np.where(res > 10)[0]
+
+hard = X_uns[idx]
+y_pred[idx]
+y_true[idx]
+
+
+from game.game import GameRound, Card, Hand, generate_hands, get_deck
+from baselines import LowPlayer
+
+plt.hist(res, 50)
+
+player = LowPlayer()
+
+b = 3
+sample_avg = []
+for b in tqdm(range(len(X_uns))):
+    samples = []
+    for _ in range(100):
+        one_emb = X_uns[b]
+
+        game = GameRound(0)
+
+        hands = [[], [], []]
+        for player_int, colour, value in zip(*np.where(one_emb)):
+            hands[player_int].append(Card(colour=int(colour), value=int(value)))
+
+        #hands[0] = list(np.sort(hands[0]))
+        #hands[1] = list(np.sort(hands[1]))
+        #hands[2] = list(np.sort(hands[2]))
+
+        np.random.shuffle(hands[0])
+        np.random.shuffle(hands[1])
+        np.random.shuffle(hands[2])
+
+        game.hands = [Hand(hands[0]),
+                      Hand(hands[1]),
+                      Hand(hands[2])]
+
+        while not game.end:
+            if game.trick_end:
+                game.play()
+                continue
+
+            obs = game.observe()
+            card = player.play(obs)
+            game.play(card)
+
+        samples.append(game.tracker.score.score[0])
+    sample_avg.append(np.mean(samples))
+
+sample_avg = np.array(sample_avg)
+
+print(y_pred[idx[b]])
+print(y_true[idx[b]])
+
+
+plt.scatter(y_true, y_pred, alpha=0.05)
+plt.scatter(sample_avg, y_pred, alpha=0.05)
+plt.scatter(sample_avg, y_true, alpha=0.05)
+
+
+plt.hist(res, 50, alpha=0.5)
+plt.hist(y_pred - sample_avg, 50, alpha=0.5)
+
+
+np.sqrt(np.mean(res ** 2))
+np.sqrt(np.mean((y_pred - sample_avg) ** 2))
