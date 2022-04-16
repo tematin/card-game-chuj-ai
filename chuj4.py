@@ -147,15 +147,17 @@ class SuiteComparator:
 
 
 class ConvResNet(nn.Module):
-    def __init__(self, channel_size, kernel_width, padding, dropout_p=0.2, leak=0.01):
+    def __init__(self, channel_size, kernel_width, padding, dropout_p=0.2, leak=0.01, activate=True):
         super().__init__()
+        self.activate = activate
+
         self.first_layer = nn.Sequential(
             nn.LazyConv2d(out_channels=channel_size,
-                          kernel_size=(1, kernel_width), padding=padding),
+                          kernel_size=kernel_width, padding=padding),
             nn.Dropout2d(dropout_p),
             nn.LeakyReLU(leak),
             nn.LazyConv2d(out_channels=channel_size,
-                          kernel_size=(1, kernel_width), padding=padding),
+                          kernel_size=kernel_width, padding=padding),
             nn.Dropout2d(dropout_p),
         )
         self.final_activation = nn.LeakyReLU(leak)
@@ -164,7 +166,10 @@ class ConvResNet(nn.Module):
     def forward(self, x):
         out = self.first_layer(x)
         out = out + self.downsample(x)
-        return self.final_activation(out)
+        if self.activate:
+            return self.final_activation(out)
+        else:
+            return out
 
 
 class DenseResNet(nn.Module):
@@ -187,94 +192,28 @@ class DenseResNet(nn.Module):
         return self.final_activation(out)
 
 
-class ResNeuralNetwork(nn.Module):
+class ThreePhaseResNeuralNetwork(nn.Module):
     def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
         super().__init__()
         convolution_layer = []
 
         for _ in range(depth):
-            layer = ConvResNet(channel_size=40, kernel_width=3, padding='same',
+            layer = ConvResNet(channel_size=40, kernel_width=(1, 3), padding='same',
                                dropout_p=dropout_p, leak=leak)
             convolution_layer.append(layer)
 
         layer = nn.Sequential(
-            nn.LazyConv2d(out_channels=20,
+            nn.LazyConv2d(out_channels=200,
                           kernel_size=(1, 9), padding='valid'),
             nn.Dropout2d(dropout_p),
             nn.LeakyReLU(leak)
         )
         convolution_layer.append(layer)
 
-        self.convolution_layer = nn.Sequential(*convolution_layer)
-
-        dense_layer = []
-        for size in dense_sizes:
-            layer = nn.Sequential(
-                nn.LazyLinear(size),
-                nn.Dropout(dropout_p),
-                nn.LeakyReLU(leak)
-            )
-            dense_layer.append(layer)
-        dense_layer.append(nn.LazyLinear(1))
-
-        self.final_dense = nn.Sequential(*dense_layer)
-
-    def forward(self, card_encoding):
-        conv = torch.flatten(self.convolution_layer(card_encoding), start_dim=1)
-        return self.final_dense(conv)
-
-
-class AlternativeResNeuralNetwork(nn.Module):
-    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
-        super().__init__()
-        convolution_layer = []
-
         for _ in range(depth):
-            layer = ConvResNet(channel_size=40, kernel_width=3, padding='same',
+            layer = ConvResNet(channel_size=200, kernel_width=(1, 1), padding='same',
                                dropout_p=dropout_p, leak=leak)
             convolution_layer.append(layer)
-
-        for _ in range(depth):
-            layer = ConvResNet(channel_size=40, kernel_width=9, padding='valid',
-                               dropout_p=dropout_p, leak=leak)
-            convolution_layer.append(layer)
-
-        self.convolution_layer = nn.Sequential(*convolution_layer)
-
-        dense_layer = []
-        for size in dense_sizes:
-            layer = nn.Sequential(
-                nn.LazyLinear(size),
-                nn.Dropout(dropout_p),
-                nn.LeakyReLU(leak)
-            )
-            dense_layer.append(layer)
-        dense_layer.append(nn.LazyLinear(1))
-
-        self.final_dense = nn.Sequential(*dense_layer)
-
-    def forward(self, card_encoding):
-        conv = torch.flatten(self.convolution_layer(card_encoding), start_dim=1)
-        return self.final_dense(conv)
-
-
-class FullResNeuralNetwork(nn.Module):
-    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
-        super().__init__()
-        convolution_layer = []
-
-        for _ in range(depth):
-            layer = ConvResNet(channel_size=40, kernel_width=3, padding='same',
-                           dropout_p=dropout_p, leak=leak)
-            convolution_layer.append(layer)
-
-        layer = nn.Sequential(
-            nn.LazyConv2d(out_channels=20,
-                          kernel_size=(1, 9), padding='valid'),
-            nn.Dropout2d(dropout_p),
-            nn.LeakyReLU(leak)
-        )
-        convolution_layer.append(layer)
 
         self.convolution_layer = nn.Sequential(*convolution_layer)
 
@@ -286,9 +225,67 @@ class FullResNeuralNetwork(nn.Module):
 
         self.final_dense = nn.Sequential(*dense_layer)
 
+
     def forward(self, card_encoding):
         conv = torch.flatten(self.convolution_layer(card_encoding), start_dim=1)
         return self.final_dense(conv)
+
+
+class ThreePhaseResNeuralNetworkPlus(nn.Module):
+    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+        super().__init__()
+
+        convolution_layer = []
+        for _ in range(depth):
+            layer = ConvResNet(channel_size=40, kernel_width=(1, 3), padding='same',
+                               dropout_p=dropout_p, leak=leak)
+            convolution_layer.append(layer)
+        self.conv_broad = nn.Sequential(*convolution_layer)
+
+        self.conv_bridge = nn.Sequential(
+            nn.LazyConv2d(out_channels=200,
+                          kernel_size=(1, 5), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak),
+            nn.LazyConv2d(out_channels=200,
+                          kernel_size=(1, 5), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak)
+        )
+
+        self.conv_tight_ramp = ConvResNet(
+            channel_size=200, kernel_width=(1, 1), padding='same',
+            dropout_p=dropout_p, leak=leak, activate=False
+        )
+
+        self.skip_connection = nn.LazyConv2d(out_channels=200, kernel_size=(1, 9), padding='valid')
+        self.skip_activation = nn.LeakyReLU(leak)
+
+        convolution_layer = []
+        for i in range(depth - 1):
+            layer = ConvResNet(channel_size=200, kernel_width=(1, 1), padding='same',
+                               dropout_p=dropout_p, leak=leak)
+            convolution_layer.append(layer)
+
+        self.conv_tight = nn.Sequential(*convolution_layer)
+
+        dense_layer = []
+        for size in dense_sizes:
+            layer = DenseResNet(size)
+            dense_layer.append(layer)
+        dense_layer.append(nn.LazyLinear(1))
+
+        self.final_dense = nn.Sequential(*dense_layer)
+
+
+    def forward(self, card_encoding):
+        broad = self.conv_broad(card_encoding)
+        tight = self.conv_bridge(broad)
+        tight_ramp = self.conv_tight_ramp(tight)
+        activated_ramp = self.skip_activation(tight_ramp + self.skip_connection(broad))
+        flat = torch.flatten(self.conv_tight(activated_ramp), start_dim=1)
+        return self.final_dense(flat)
+
 
 
 dataset = load_data(add_value_layer=True)
@@ -299,35 +296,44 @@ comparator = SuiteComparator()
 
 comparator.add(
     suite=TrainSuite(
-        model=ResNeuralNetwork(dense_sizes=[200, 200, 200, 200], depth=6).to("cuda"),
+        model=ThreePhaseResNeuralNetworkPlus(dense_sizes=[[200, 200], [200, 200]], depth=2).to("cuda"),
         optimizer=torch.optim.AdamW,
         optimizer_kwargs={'weight_decay': 0.04},
         loss_fn=loss_fn,
         dataset=dataset
     ),
-    name="baseline4+3"
+    name="plusplus"
 )
 
 comparator.add(
     suite=TrainSuite(
-        model=AlternativeResNeuralNetwork(dense_sizes=[200, 200, 200, 200], depth=2).to("cuda"),
+        model=ThreePhaseResNeuralNetwork(dense_sizes=[[200, 200], [200, 200]], depth=2).to("cuda"),
         optimizer=torch.optim.AdamW,
         optimizer_kwargs={'weight_decay': 0.04},
         loss_fn=loss_fn,
         dataset=dataset
     ),
-    name="longer_model"
+    name="three_phase"
 )
 
 comparator.train_to_epochs(10)
 comparator.plot_compare()
 
-comparator.train_to_epochs(60)
+comparator.train_to_epochs(25)
 comparator.plot_compare()
 
 
+plt.plot(comparator.suites[-1].train_accuracy)
+plt.plot(comparator.suites[-1].test_accuracy)
+
+plt.plot(comparator.suites[-2].train_accuracy)
+plt.plot(comparator.suites[-2].test_accuracy)
+
+plt.plot(comparator.suites[-3].train_accuracy)
+plt.plot(comparator.suites[-3].test_accuracy)
+
+
 model = comparator.suites[0].model
-second_model = comparator.suites[1].model
 
 
 unscaled_dataset = load_data(scale_X=False, scale_y=False)
@@ -335,13 +341,12 @@ unscaled_dataset = load_data(scale_X=False, scale_y=False)
 X = dataset.valid_X
 X_uns = unscaled_dataset.valid_X
 y_true = dataset.valid_y
-unscaled_dataset.valid_y
+y_true = -unscaled_dataset.valid_y
 
 model.train(False)
 
 cuda_X = torch.tensor(X).float().to("cuda")
 y_pred = model(cuda_X).detach().to("cpu").numpy().flatten()
-y_pred_2 = second_model(cuda_X).detach().to("cpu").numpy().flatten()
 
 def descale(x):
     ma = 1.2288641831570022
@@ -357,7 +362,7 @@ y_true = descale(y_true)
 plt.scatter(y_true, y_pred, alpha=0.05)
 
 res = y_pred - y_true
-
+plt.hist(res, 50)
 
 
 idx = np.where(res > 10)[0]
