@@ -1,6 +1,6 @@
 import numpy as np
 
-from encoders import concatenate_embeddings
+from training.encoders import concatenate_embeddings
 import torch
 import uuid
 

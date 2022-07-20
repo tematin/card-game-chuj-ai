@@ -1,16 +1,15 @@
 from object_storage import NeuralNetwork, get_embedder_v2
-from encoders import Lambda2DEmbedder, get_hand, get_pot_cards, get_possible_cards, \
-    get_highest_pot_card, get_pot_value, get_card_took_flag, get_historically_played_cards, concatenate_embeddings
+from training.encoders import Lambda2DEmbedder, get_hand, get_card_took_flag
 from training.models import to_cuda_list, Episode, QFunction
-from training.schedulers import OrdinaryScheduler, TripleScheduler
+from training.schedulers import OrdinaryScheduler
 from training.explorers import ExplorationCombiner, EpsilonGreedy, Softmax
 from training.fitters import ReplayFitter, GroupedFitter, ReplayMemory
-from training.updaters import Q, Sarsa
+from training.updaters import Sarsa
 from training.rewards import OrdinaryReward
 
-from evaluation_scripts import Tester
+from evaluation.core import Tester
 
-from baselines import LowPlayer, RandomPlayer
+from baselines.baselines import LowPlayer, RandomPlayer
 from copy import deepcopy
 
 import numpy as np

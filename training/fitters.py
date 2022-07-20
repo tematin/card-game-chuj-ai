@@ -1,6 +1,5 @@
 import numpy as np
-from abc import abstractmethod, ABC
-from encoders import concatenate_embeddings
+from training.encoders import concatenate_embeddings
 
 
 class RegularFitter:

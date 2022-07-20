@@ -1,19 +1,15 @@
 from training.rewards import OrdinaryReward
 from training.models import QTrainer, QFunction
-from training.schedulers import OrdinaryScheduler, TripleScheduler
+from training.schedulers import OrdinaryScheduler
 from training.explorers import ExplorationCombiner, EpsilonGreedy, Softmax
 from training.fitters import ReplayFitter, GroupedFitter, ReplayMemory
-from training.updaters import Q, Sarsa
+from training.updaters import Q
 
-from baselines import LowPlayer, RandomPlayer
-from copy import deepcopy
-from evaluation_scripts import Tester
+from baselines.baselines import LowPlayer
+from evaluation.core import Tester
 from object_storage import get_embedder_v2, get_model
 import torch
 from torch import nn
-import dill
-from functools import partial
-
 
 tester = Tester(2000)
 
@@ -24,24 +20,28 @@ loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam
 
 player = QFunction(embedder, model)
-#with open('models/baseline.dill', 'rb') as f:
-#    player = dill.load(f)
-#player.embedder = embedder
 
-trainer = QTrainer(player, optimizer=optimizer, loss_function=loss_fn,
-                   explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.5, 0.5]),
-                   fitter=ReplayFitter(replay_memory=ReplayMemory(2000),
-                                              replay_size=256 - 12 * 8,
-                                              fitter=GroupedFitter(8)),
-                   updater=Q(),
-                   reward=OrdinaryReward(alpha=0.5))
+trainer = QTrainer(
+    player,
+    optimizer=optimizer,
+    loss_function=loss_fn,
+    explorer=ExplorationCombiner([Softmax(2), EpsilonGreedy(1)], [0.5, 0.5]),
+    fitter=ReplayFitter(
+        replay_memory=ReplayMemory(2000),
+        replay_size=256 - 12 * 8,
+        fitter=GroupedFitter(8)
+    ),
+    updater=Q(),
+    reward=OrdinaryReward(alpha=0.5)
+)
 
-#previous_player = deepcopy(player)
 
 scores = []
 scheduler = OrdinaryScheduler(adversary=player)
 
 for i in range(10):
+    # previous_player = deepcopy(player)
+
     scheduler.train(trainer, episodes=30000)
 
     print(' ')

@@ -1,4 +1,4 @@
-from encoders import Lambda2DEmbedder, get_hand, get_pot_cards, get_possible_cards, \
+from training.encoders import Lambda2DEmbedder, get_hand, get_pot_cards, get_possible_cards, \
     get_highest_pot_card, get_pot_value, get_card_took_flag, get_historically_played_cards
 import torch
 from torch import nn

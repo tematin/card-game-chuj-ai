@@ -97,7 +97,7 @@ class Lambda2DEmbedder:
         if self.include_values:
             card_embedding.append(self.values)
         card_embedding = np.stack(card_embedding)
-        other_embedding = np.concatenate([np.array(f(observation))
+        other_embedding = np.concatenate([np.array(f(observation), dtype=float).flatten()
                                           for f in self.other_extractors])
         return np.expand_dims(card_embedding, 0), other_embedding.reshape(1, -1)
 
@@ -169,6 +169,25 @@ def get_pot_value(observation):
     return [observation.pot.get_point_value()]
 
 
+def get_pot_size_indicators(observation):
+    return [len(observation.pot) == 1,
+            len(observation.pot) == 2]
+
+
+def get_split_pot_value(observation):
+    ret = np.zeros(4)
+    red_idx = 0
+    for card in observation.pot:
+        if card.get_point_value() == 1:
+            ret[red_idx] += 1
+            red_idx += 1
+        elif card.get_point_value() == 4:
+            ret[-2] += 1
+        elif card.get_point_value() == 8:
+            ret[-1] += 1
+    return ret
+
+
 def get_current_score(observation):
     return [observation.tracker.score.score[observation.phasing_player],
             observation.tracker.score.score[advance_player(observation.phasing_player)],
@@ -179,6 +198,33 @@ def get_card_took_flag(observation):
         took_card = observation.tracker.durch.took_card
         player = observation.phasing_player
         return took_card[player], took_card[(player + 1) % 3], took_card[(player + 2) % 3]
+
+
+def get_value_cards_took(observation):
+    vt = observation.tracker.value
+    player = observation.phasing_player
+
+    ret = np.zeros(11, dtype=float)
+    ret[:vt.red_cards[player]] = 1
+
+    ret[-2] = vt.yellow_cards[player]
+    ret[-1] = vt.green_cards[player]
+
+    return ret
+
+
+def get_value_cards_received(observation):
+    vt = observation.tracker.value
+    next_player = (observation.phasing_player + 1) % PLAYERS
+    previous_player = (observation.phasing_player + 2) % PLAYERS
+
+    ret = np.zeros(11, dtype=float)
+    ret[:(vt.red_cards[next_player] + vt.red_cards[previous_player])] = 1
+
+    ret[-2] = vt.yellow_cards[next_player] + vt.yellow_cards[previous_player]
+    ret[-1] = vt.green_cards[next_player] + vt.green_cards[previous_player]
+
+    return ret
 
 
 def get_possible_cards(player):

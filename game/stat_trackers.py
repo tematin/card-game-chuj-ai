@@ -45,7 +45,7 @@ class MissedColoursTracker(SuperTracker):
                                     pot.get_pot_colour()] = True
 
 
-class DurchEligibilityTracker:
+class DurchEligibilityTracker(SuperTracker):
     def __init__(self):
         self.took_card = np.full(PLAYERS, False)
 
@@ -62,6 +62,29 @@ class DurchEligibilityTracker:
             ret = ret & (not self.took_card[i])
         return ret
 
+    def played_durch(self):
+        if self.took_card.sum() == 1:
+            return self.took_card
+        else:
+            return np.full_like(self.took_card, False)
+
+
+class ValueCardsTracker(SuperTracker):
+    def __init__(self):
+        self.red_cards = np.zeros(3, dtype=int)
+        self.yellow_cards = np.zeros(3, dtype=int)
+        self.green_cards = np.zeros(3, dtype=int)
+
+    def callback(self, pot, card, player):
+        if pot.is_full() and pot.get_point_value() > 0:
+            for card in pot:
+                if card.get_point_value() == 1:
+                    self.red_cards[pot.get_pot_owner()] += 1
+                elif card.get_point_value() == 4:
+                    self.yellow_cards[pot.get_pot_owner()] += 1
+                elif card.get_point_value() == 8:
+                    self.green_cards[pot.get_pot_owner()] += 1
+
 
 class MultiTracker(SuperTracker):
     def __init__(self):
@@ -70,12 +93,14 @@ class MultiTracker(SuperTracker):
         self.missed_colours = MissedColoursTracker()
         self.played_cards = PlayedCardsTracker()
         self.history = HistoryTracker()
+        self.value = ValueCardsTracker()
 
         self.trackers = [self.score,
                          self.durch,
                          self.missed_colours,
                          self.played_cards,
-                         self.history]
+                         self.history,
+                         self.value]
 
     def callback(self, pot, card, player):
         for tracker in self.trackers:

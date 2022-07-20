@@ -1,5 +1,4 @@
 import numpy as np
-from encoders import concatenate_embeddings
 
 
 class EpsilonGreedy:
