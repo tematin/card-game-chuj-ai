@@ -1,17 +1,27 @@
-from collections import Counter
+from abc import ABC, abstractmethod
+
 import numpy as np
+from collections import Counter
+
+from game.utils import Card
 
 
-class RandomPlayer:
-    def play(self, observation):
-        return np.random.choice(observation.eligible_choices)
+class Agent(ABC):
+    @abstractmethod
+    def play(self, observation: dict) -> Card:
+        pass
 
 
-class LowPlayer:
-    def play(self, observation):
-        pot = observation.pot
-        hand = observation.hand
-        #hand.hand = list(np.sort(hand.hand))
+class RandomPlayer(Agent):
+    def play(self, observation: dict) -> Card:
+        return np.random.choice(observation['eligible_choices'])
+
+
+class LowPlayer(Agent):
+    def play(self, observation: dict) -> Card:
+        pot = observation['pot']
+        hand = observation['hand']
+
         if pot.is_empty():
             smallest_colour = get_smallest_colour(hand)
             return get_smallest_card(hand, smallest_colour)
@@ -41,7 +51,7 @@ def get_smallest_card(hand, colour=None):
     if colour is not None:
         return get_sorted_cards_of_colour(hand, colour)[0]
     else:
-        idx = np.argmin([c.value for c in hand.hand])
+        idx = np.argmin([c.value for c in hand])
         return hand[idx]
 
 
@@ -49,12 +59,12 @@ def get_largest_card(hand, colour=None):
     if colour is not None:
         return get_sorted_cards_of_colour(hand, colour)[-1]
     else:
-        idx = np.argmax([c.value for c in hand.hand])
+        idx = np.argmax([c.value for c in hand])
         return hand[idx]
 
 
 def get_highest_points_card(hand, return_value=False):
-    vals = [c.get_point_value() for c in hand.hand]
+    vals = [c.get_point_value() for c in hand]
     idx = np.argmax(vals)
     if return_value:
         return hand[idx], vals[idx]
@@ -75,5 +85,4 @@ def get_colour_counts(hand):
 
 
 def get_sorted_cards_of_colour(hand, colour):
-    return np.sort([c for c in hand.hand if c.colour == colour])
-
+    return np.sort([c for c in hand if c.colour == colour])

@@ -3,3 +3,4 @@
 *.dill
 models/
 __pycache__/
+runs/

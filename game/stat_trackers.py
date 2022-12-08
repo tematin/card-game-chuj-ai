@@ -1,107 +1,114 @@
+from abc import ABC
+
 import numpy as np
-from .constants import COLOURS, PLAYERS
+from .constants import PLAYERS
+from .utils import get_deck
+from .game import MainPhase, CardMovingPhase, GameTypeDeclarationPhase
 
+class Tracker(ABC):
+    def reset(self, hands):
+        pass
 
-class SuperTracker:
-    def callback(self, pot, card, player):
+    def pre_play_update(self, game, card):
+        if isinstance(game, CardMovingPhase):
+            self._main_phase_pre_play_update(game, card)
+        elif isinstance(game, GameTypeDeclarationPhase):
+            self._card_moving_pre_play_update(game, card)
+        elif isinstance(game, MainPhase):
+            self._main_phase_pre_play_update(game, card)
+
+    def _main_phase_pre_play_update(self, game, card):
+        pass
+
+    def _card_moving_pre_play_update(self, game, card):
+        pass
+
+    def _type_declaration_pre_play_update(self, game, card):
+        pass
+
+    def post_play_update(self, game):
+        pass
+
+    def get_observations(self, player):
         pass
 
 
-class HistoryTracker(SuperTracker):
+class RemainingPossibleCards(Tracker):
     def __init__(self):
-        self.history = []
+        self._possible_cards = None
 
-    def callback(self,  pot, card, player):
-        if pot.is_full():
-            self.history.append(pot)
+    def reset(self, hands):
+        self._possible_cards = [[get_deck() for _ in range(PLAYERS - 1)]
+                                for _ in range(PLAYERS)]
+        for i in range(PLAYERS):
+            for card in hands[i]:
+                for j in range(PLAYERS - 1):
+                    self._possible_cards[i][j].remove(card)
 
+    def _main_phase_pre_play_update(self, game, card):
+        player = game.phasing_player
 
-class ScoreTracker(SuperTracker):
-    def __init__(self):
-        self.score = np.full(PLAYERS, 0)
+        for i in range(PLAYERS):
+            for j in range(PLAYERS - 1):
+                try:
+                    self._possible_cards[i][j].remove(card)
+                except ValueError:
+                    pass
 
-    def callback(self, pot, card, player):
-        if pot.is_full():
-            pot_owner = pot.get_pot_owner()
-            self.score[pot_owner] += pot.get_point_value()
+        if game.pot.is_empty():
+            return
 
+        pot_colour = game.pot.get_pot_colour()
+        if pot_colour == card.colour:
+            return
 
-class PlayedCardsTracker(SuperTracker):
-    def __init__(self):
-        self.played_cards = []
-
-    def callback(self,  pot, card, player):
-        self.played_cards.append(card)
-
-
-class MissedColoursTracker(SuperTracker):
-    def __init__(self):
-        self.missed_colours = np.full((PLAYERS, COLOURS), False)
-
-    def callback(self, pot, card, player):
-        if len(pot) > 1:
-            if card.colour != pot.get_pot_colour():
-                self.missed_colours[player,
-                                    pot.get_pot_colour()] = True
-
-
-class DurchEligibilityTracker(SuperTracker):
-    def __init__(self):
-        self.took_card = np.full(PLAYERS, False)
-
-    def callback(self, pot, card, player):
-        if pot.is_full():
-            pot_owner = pot.get_pot_owner()
-            self.took_card[pot_owner] = True
-
-    def can_play_durch(self, player):
-        ret = True
         for i in range(PLAYERS):
             if i == player:
                 continue
-            ret = ret & (not self.took_card[i])
-        return ret
+            j = (i - player) % PLAYERS - 1
+            self._possible_cards[i][j] = [c for c in self._possible_cards[i][j]
+                                          if c.colour != pot_colour]
 
-    def played_durch(self):
-        if self.took_card.sum() == 1:
-            return self.took_card
+    def get_observations(self, player):
+        return {'possible_cards': self._possible_cards[player]}
+
+
+class ScoreTracker(Tracker):
+    def reset(self, hands):
+        self._score = [0 for _ in range(PLAYERS)]
+
+    def post_play_update(self, game):
+        if not game.pot.is_empty() or len(game.pot_history) == 0:
+            return
+
+        last_pot = game.pot_history[-1]
+        self._score[last_pot.get_pot_owner()] += last_pot.get_point_value()
+
+    def get_observations(self, player):
+        return {
+            'score': [self._score[(player + j) % PLAYERS] for j in range(PLAYERS)]
+        }
+
+
+class DurchEligibilityTracker(Tracker):
+    def reset(self, hands):
+        self._took_card = np.full(PLAYERS, False)
+
+    def post_play_update(self, game):
+        if not game.pot.is_empty() or len(game.pot_history) == 0:
+            return
+
+        last_pot = game.pot_history[-1]
+        pot_owner = last_pot.get_pot_owner()
+        self._took_card[pot_owner] = True
+
+    def get_observations(self, player):
+        if sum(self._took_card) == 0:
+            ret = [True for _ in range(PLAYERS)]
+        elif sum(self._took_card) == 1:
+            ret = [False for _ in range(PLAYERS)]
+            ret[(player + np.argmax(self._took_card)) % PLAYERS] = True
         else:
-            return np.full_like(self.took_card, False)
+            ret = [False for _ in range(PLAYERS)]
 
-
-class ValueCardsTracker(SuperTracker):
-    def __init__(self):
-        self.red_cards = np.zeros(3, dtype=int)
-        self.yellow_cards = np.zeros(3, dtype=int)
-        self.green_cards = np.zeros(3, dtype=int)
-
-    def callback(self, pot, card, player):
-        if pot.is_full() and pot.get_point_value() > 0:
-            for card in pot:
-                if card.get_point_value() == 1:
-                    self.red_cards[pot.get_pot_owner()] += 1
-                elif card.get_point_value() == 4:
-                    self.yellow_cards[pot.get_pot_owner()] += 1
-                elif card.get_point_value() == 8:
-                    self.green_cards[pot.get_pot_owner()] += 1
-
-
-class MultiTracker(SuperTracker):
-    def __init__(self):
-        self.score = ScoreTracker()
-        self.durch = DurchEligibilityTracker()
-        self.missed_colours = MissedColoursTracker()
-        self.played_cards = PlayedCardsTracker()
-        self.history = HistoryTracker()
-        self.value = ValueCardsTracker()
-
-        self.trackers = [self.score,
-                         self.durch,
-                         self.missed_colours,
-                         self.played_cards,
-                         self.history,
-                         self.value]
-
-    def callback(self, pot, card, player):
-        for tracker in self.trackers:
-            tracker.callback(pot, card, player)
+        return {'eligible_durch': ret}

@@ -1,137 +1,46 @@
+from enum import Enum
+from itertools import permutations, combinations
+from typing import List
+
 import numpy as np
 from .constants import COLOURS, VALUES, PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
-from .stat_trackers import ScoreTracker, DurchEligibilityTracker, MultiTracker
-
-
-def get_deck():
-    ret = []
-    for value in range(VALUES):
-        for colour in range(COLOURS):
-            ret.append(Card(colour, value))
-    return ret
-
-
-def generate_hands():
-    deck = get_deck()
-    np.random.shuffle(deck)
-    return [Hand(list(np.sort(deck[i:(i + CARDS_PER_PLAYER)])))
-            for i in range(0, CARDS_PER_PLAYER * PLAYERS, CARDS_PER_PLAYER)]
-
-
-def advance_player(player, moves=1):
-    return (player + moves) % PLAYERS
-
-
-def is_eligible_choice(pot, hand, card):
-    if pot.is_empty():
-        return True
-    elif card.colour == pot.get_pot_colour():
-        return True
-    else:
-        if not hand.has_colour(pot.get_pot_colour()):
-            return True
-        else:
-            return False
-
-
-def get_eligible_choices(pot, hand):
-    if pot.is_empty():
-        return hand.hand
-    else:
-        pot_colour = pot.get_pot_colour()
-        if hand.has_colour(pot_colour):
-            return [c for c in hand if c.colour == pot_colour]
-        else:
-            return hand.hand
-
-
-class Card:
-    colour_to_str = {0: '♥',
-                     1: '☘',
-                     2: '⛊',
-                     3: '⚈'}
-    value_to_str = {5: 'D',
-                    6: 'H',
-                    7: 'K',
-                    8: 'A'}
-
-    def __init__(self, colour, value):
-        if not 0 <= value < VALUES:
-            raise ValueError("Wrong value specified")
-        if not 0 <= colour < COLOURS:
-            raise ValueError("Wrong colour specified")
-        self.colour = colour
-        self.value = value
-        self.multiplier = 1
-
-    def is_higher_value(self, other):
-        if other.colour == self.colour:
-            return other.value >= self.value
-        return False
-
-    def __int__(self):
-        return self.colour * 9 + self.value
-
-    def __eq__(self, other):
-        return (self.colour == other.colour) & (self.value == other.value)
-
-    def __lt__(self, other):
-        return int(self) < int(other)
-
-    def __hash__(self):
-        return int(self)
-
-    def get_point_value(self):
-        if self.colour == 0:
-            val = 1
-        elif self.colour == 1 and self.value == 6:
-            val = 4
-        elif self.colour == 2 and self.value == 6:
-            val = 8
-        else:
-            val = 0
-        return val * self.multiplier
-
-    def __repr__(self):
-        colour_code = self.colour_to_str[self.colour]
-        value_code = self.value_to_str.get(self.colour, str(self.value + 6))
-
-        point_value = self.get_point_value()
-        if point_value > 2:
-            point_code = '#'
-        else:
-            point_code = ''
-
-        return point_code + colour_code + value_code
+from .stat_trackers import Tracker
+from .utils import advance_player, is_eligible_choice, get_eligible_choices, Card
 
 
 class Hand:
-    def __init__(self, hand):
-        if not isinstance(hand, list):
+    def __init__(self, cards):
+        if not isinstance(cards, list):
             raise TypeError("Wrong type instantiation")
-        self.hand = hand
+        self._cards = cards
 
     def remove_card(self, card):
-        self.hand.remove(card)
+        self._cards.remove(card)
+
+    def add_card(self, card):
+        self._cards.append(card)
 
     def has_colour(self, colour):
-        for card in self.hand:
+        for card in self._cards:
             if card.colour == colour:
                 return True
         return False
 
     def is_empty(self):
-        return len(self.hand) == 0
+        return len(self._cards) == 0
 
     def __getitem__(self, item):
-        return self.hand[item]
+        return self._cards[item]
 
     def __iter__(self):
-        for card in self.hand:
+        for card in self._cards:
             yield card
 
+    def __len__(self):
+        return len(self._cards)
+
     def __repr__(self):
-        return '{' + ', '.join([c.__repr__() for c in self.hand]) + '}'
+        return '{' + ', '.join([c.__repr__() for c in self._cards]) + '}'
 
 
 class Pot:
@@ -176,96 +85,271 @@ class Pot:
             return None
         return self._cards[0]
 
+    def __repr__(self):
+        return self._cards.__repr__()
+
     def __iter__(self):
         for card in self._cards:
             yield card
 
+    def __getitem__(self, item):
+        return self._cards[item]
+
     def __len__(self):
         return len(self._cards)
 
+    @property
+    def initial_player(self):
+        return self._initial_player
 
-class GameRound:
-    def __init__(self, starting_player):
-        self.phasing_player = starting_player
-        self.hands = generate_hands()
-        self.pot = Pot(starting_player)
-        self.phase = ""
-        self.end = False
-        self.trick_end = False
 
-        self.tracker = MultiTracker()
+class MainPhase:
+    def __init__(self, starting_player, hands):
+        self._phasing_player = starting_player
+        self._hands = [Hand(i) for i in hands]
+        self._pot = Pot(starting_player)
+        self._pot_history = []
+        self._end = False
 
-    def play(self, card=None):
-        if self.end:
+    def play(self, card):
+        if self._end:
             raise RuntimeError("Game already ended")
 
-        if self.trick_end:
-            if card is not None:
-                raise RuntimeError("Trick ended no cards allowed")
-            self._clear()
-        else:
-            if card is None:
-                raise RuntimeError("Card required")
-            if not is_eligible_choice(self.pot, self.hands[self.phasing_player], card):
-                raise RuntimeError("Foul play")
-            self._play(card)
+        if not is_eligible_choice(self._pot, self._hands[self.phasing_player], card):
+            raise RuntimeError("Foul play")
+        self._play(card)
 
     def _play(self, card):
-        self.hands[self.phasing_player].remove_card(card)
-        self.pot.add_card(card)
+        self._hands[self._phasing_player].remove_card(card)
+        self._pot.add_card(card)
 
-        self.tracker.callback(self.pot, card, self.phasing_player)
-
-        if self.pot.is_full():
-            self.trick_end = True
-            self.phasing_player = 0
+        if self._pot.is_full():
+            self._clear()
         else:
-            self.phasing_player = advance_player(self.phasing_player)
+            self._phasing_player = advance_player(self._phasing_player)
 
     def _clear(self):
-        if self.phasing_player == 2:
-            self.phasing_player = self.pot.get_pot_owner()
-            self.pot = Pot(self.phasing_player)
+        self._phasing_player = self._pot.get_pot_owner()
+        self._pot_history.append(self._pot)
+        self._pot = Pot(self._phasing_player)
 
-            self.trick_end = False
+        self._trick_end = False
 
-            if self.hands[self.phasing_player].is_empty():
-                self.end = True
+        if self._hands[self.phasing_player].is_empty():
+            self._end = True
+            self._points = self._get_points()
+
+    def _get_points(self):
+        scores = np.zeros(PLAYERS)
+        pots_took = np.zeros(PLAYERS)
+
+        for pot in self._pot_history:
+            owner = pot.get_pot_owner()
+            pots_took[owner] += 1
+            scores[owner] += pot.get_point_value()
+
+        idx = np.argmax(pots_took)
+        if pots_took[idx] == CARDS_PER_PLAYER:
+            scores = np.zeros(PLAYERS)
+            scores[idx] += DURCH_SCORE
+            return scores
         else:
-            self.phasing_player = advance_player(self.phasing_player)
+            return scores
 
-    def observe(self):
-        return Observation(tracker=self.tracker,
-                           pot=self.pot,
-                           hand=self.hands[self.phasing_player],
-                           phasing_player=self.phasing_player,
-                           right_hand=self.hands[advance_player(self.phasing_player)],
-                           left_hand=self.hands[advance_player(self.phasing_player, 2)])
+    @property
+    def points(self):
+        return self._points
 
-    def requires_action(self):
-        return not self.trick_end
+    @property
+    def end(self):
+        return self._end
 
-    def get_points(self):
-        if self.end and sum(self.tracker.durch.took_card) == 1:
-            score = np.full(PLAYERS, 0)
-            score[np.argmax(self.tracker.durch.took_card)] = DURCH_SCORE
-            return score
+    @property
+    def phasing_player(self):
+        return self._phasing_player
+
+    @property
+    def current_player_hand(self):
+        return self._hands[self._phasing_player]
+
+    @property
+    def hands(self):
+        return self._hands
+
+    @property
+    def pot(self):
+        return self._pot
+
+    @property
+    def pot_history(self):
+        return self._pot_history
+
+    def eligible_choices(self):
+        return get_eligible_choices(
+            self.pot, self.current_player_hand
+        )
+
+
+class CardMovingPhase:
+    def __init__(self, starting_player, hands):
+        self._starting_player = starting_player
+        self._hands = hands
+        self._moved_cards = [list() for _ in range(PLAYERS)]
+        self._phasing_player = 0
+        self._end = False
+
+    def play(self, cards):
+        if self._end:
+            raise RuntimeError("Game ready for next phase")
+
+        if len(cards) != 2:
+            raise ValueError("Wrong number of cards")
+
+        for card in cards:
+            if card not in self._hands:
+                raise ValueError("Invalid move")
+            self._moved_cards[self._phasing_player].append(card)
+            self._hands[self._phasing_player].remove_card(card)
+
+        self._phasing_player += 1
+        if self._phasing_player == PLAYERS:
+            self._end = True
+
+            for i in range(PLAYERS):
+                for card in self._moved_cards[i]:
+                    self._hands[(i + 1) % PLAYERS].add_card(card)
+
+    def next_stage(self):
+        return GameTypeDeclarationPhase(hands=self._hands,
+                                        starting_player=self._starting_player)
+
+    @property
+    def end(self):
+        return self._end
+
+    @property
+    def phasing_player(self):
+        return self._phasing_player
+
+    @property
+    def current_player_hand(self):
+        return self._hands[self._phasing_player]
+
+    def eligible_choices(self):
+        return combinations(self.current_player_hand, 2)
+
+
+class GameTypeDeclarationPhase:
+    _allowed_doubling_cards = [Card(colour=1, value=6),
+                               Card(colour=2, value=6)]
+
+    def __init__(self, hands, starting_player) -> None:
+        self._hands = hands
+        self._starting_player = starting_player
+
+        self._end = False
+        self._phasing_player = 0
+        self._round = 0
+
+        self._doubled_cards = []
+
+    def play(self, cards):
+        if self._end:
+            raise RuntimeError("Game ready for next phase")
+
+        for card in cards:
+            if card not in self._hands:
+                raise ValueError("Invalid move")
+
+            if card not in self._allowed_doubling_cards:
+                raise ValueError("Invalid move")
+
+            self._doubled_cards.append(card)
+
+        self._phasing_player += 1
+        if self._phasing_player == PLAYERS:
+            if self._round == 0 and len(self._doubled_cards) > 0:
+                self._round = 1
+                self._phasing_player = 0
+            else:
+                self._end = True
+
+    @property
+    def end(self):
+        return self._end
+
+    @property
+    def phasing_player(self):
+        return self._phasing_player
+
+    def next_stage(self):
+        return MainPhase(hands=self._hands,
+                         starting_player=self._starting_player)
+
+    @property
+    def current_player_hand(self):
+        return self._hands[self._phasing_player]
+
+    def eligible_choices(self):
+        ret = []
+        allowed_cards = [x for x in self._hands[self._phasing_player]
+                        if x in self._allowed_doubling_cards]
+        for i in range(len(allowed_cards)):
+            ret.extend(list(combinations(allowed_cards, i)))
+
+        return ret
+
+
+class TrackedGameRound:
+    def __init__(self, starting_player: int, hands: List[Hand],
+                 trackers: List[Tracker]) -> None:
+        self._game = CardMovingPhase(
+            starting_player=starting_player,
+            hands=hands
+        )
+
+        self._trackers = trackers
+        for tracker in trackers:
+            tracker.reset(hands)
+
+    def observe(self, player=None):
+        if player is None:
+            player = self._game.phasing_player
+
+        observation = {
+            'hand': self._game.current_player_hand,
+            'eligible_choices': self._game.eligible_choices()
+        }
+
+        if isinstance(self._game, MainPhase):
+            observation['pot'] = self._game.pot
+
+        for tracker in self._trackers:
+            observation.update(tracker.get_observations(player))
+
+        return observation
+
+    def play(self, action):
+        for tracker in self._trackers:
+            tracker.pre_play_update(self._game, action)
+
+        self._game.play(action)
+
+        if isinstance(self._game, MainPhase):
+            for tracker in self._trackers:
+                tracker.post_play_update(self._game)
+
+    @property
+    def phasing_player(self):
+        return self._game.phasing_player
+
+    @property
+    def end(self):
+        return self._game.end
+
+    @property
+    def points(self):
+        if isinstance(self._game, MainPhase):
+            return self._game.points
         else:
-            return self.tracker.score.score
-
-
-class Observation:
-    def __init__(self, tracker, pot, hand, phasing_player, right_hand, left_hand):
-        self.tracker = tracker
-        self.pot = pot
-        self.hand = hand
-        self.phasing_player = phasing_player
-        if pot.is_full():
-            self.eligible_choices = [None]
-        else:
-            self.eligible_choices = get_eligible_choices(pot, hand)
-
-        self.right_hand = right_hand
-        self.left_hand = left_hand
-
-
+            return np.zeros(PLAYERS)
