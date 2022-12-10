@@ -9,7 +9,7 @@ class Tracker:
 
     def register(self) -> None:
         for i, model in enumerate(self._models):
-            self._data[i].append(model.get(self._dataset))
+            self._data[i].append(model.get_input(self._dataset))
 
 
 tracker_instance = Tracker(

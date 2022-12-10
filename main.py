@@ -8,40 +8,54 @@ import numpy as np
 from baselines.baselines import RandomPlayer, LowPlayer, Agent
 from game.environment import Tester, Environment
 from game.rewards import OrdinaryReward
-from game.stat_trackers import ScoreTracker, DurchEligibilityTracker, \
-    RemainingPossibleCards
+from game.utils import GamePhase
 from learners.explorers import EpsilonGreedy, ExplorationCombiner, Random, Softmax, ExplorationSwitcher
 from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
-    get_hand, get_pot_cards, get_pot_value, get_pot_size_indicators, get_eligible_durch, \
-    get_current_score, get_possible_cards
+    get_pot_value, get_pot_size_indicators, FeatureGeneratorSplitter
 from learners.memory import ReplayMemory
 from learners.runner import TrainRun
 from learners.updaters import Step, MaximumValue
 from model.model import MainNetwork, SimpleNetwork
-from learners.trainers import SimpleTrainer, DoubleTrainer
+from learners.trainers import DoubleTrainer
 from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
     Approximator
 from learners.transformers import generate_dataset, MultiDimensionalScaler, SimpleScaler
 
 reward = OrdinaryReward(0.5)
-trackers = [ScoreTracker(), DurchEligibilityTracker(), RemainingPossibleCards()]
 
-feature_generator = Lambda2DEmbedder(
-    [get_highest_pot_card,
-     get_hand,
-     get_pot_cards,
-     get_possible_cards(0),
-     get_possible_cards(1)],
-    [get_pot_value,
-     get_pot_size_indicators,
-     get_current_score,
-     get_eligible_durch],
-)
+feature_generator_dict = {
+    GamePhase.MOVING: Lambda2DEmbedder(['hand'], []),
+    GamePhase.DURCH: Lambda2DEmbedder(
+        ['hand',
+         'moved_cards',
+         'received_cards'],
+        []
+    ),
+    GamePhase.DECLARATION: Lambda2DEmbedder(
+        ['hand',
+         'moved_cards',
+         'received_cards'],
+        [],
+    ),
+    GamePhase.PLAY: Lambda2DEmbedder(
+        [get_highest_pot_card,
+         'hand',
+         'pot',
+         'possible_cards',
+         'received_cards'],
+        [get_pot_value,
+         get_pot_size_indicators,
+         'score',
+         'doubled',
+         'eligible_durch',
+         'declared_durch'],
+    ),
+}
+
 
 X, y = generate_dataset(
     env=Environment(
         reward=reward,
-        trackers=trackers,
         rival=RandomPlayer()
     ),
     episodes=1000,
@@ -78,13 +92,7 @@ approx = SoftUpdateTorch(
 
 
 agent = DoubleTrainer(
-    q=Buffer(
-        buffer_size=256,
-        approximator=TargetTransformer(
-            transformer=scaler_rewards,
-            approximator=approx
-        )
-    ),
+    q=None,
     memory=ReplayMemory(
         yield_length=2,
         memory_size=2000,
@@ -104,23 +112,17 @@ agent = DoubleTrainer(
     feature_transformers=[scaler_3d, scaler_flat],
 )
 
-agent.load(Path('C:/Python/Repos/chuj/runs/double_q_baseline_extention/episode_12000'))
-
 
 runner = TrainRun(
     agent=agent,
-    tester=Tester(
-        100,
-        trackers=trackers
-    ),
+    tester=Tester(100),
     environment=Environment(
         reward=reward,
-        trackers=trackers,
         rival=agent
     ),
     benchmark=LowPlayer(),
     eval_freq=2000,
-    checkpoint_dir=Path('C:/Python/Repos/chuj/runs/double_q_baseline_extension_2')
+    checkpoint_dir=Path('C:/Python/Repos/chuj/runs/double_q_baseline')
 )
 
 runner.train(16000)

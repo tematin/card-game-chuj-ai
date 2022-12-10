@@ -5,12 +5,13 @@ from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
-from typing import List, Union, Type, Optional, Any
+from typing import List, Union, Type, Optional, Any, Dict, Tuple
 from abc import abstractmethod, ABC
 import torch
 from torch import nn
 
-from .representation import concatenate_feature_list
+from game.utils import GamePhase, Observation
+from .representation import concatenate_feature_list, TrainTuple
 from .transformers import Transformer
 
 
@@ -29,30 +30,87 @@ class Approximator(ABC):
     def load(self, directory: Path) -> None:
         pass
 
-    def train_mode(self, val: bool) -> None:
-        pass
-
-    @property
-    def update_mode_dependent(self) -> bool:
-        return False
-
     def decay(self) -> None:
         pass
 
 
-class Buffer(Approximator):
+class DataTransformer(ABC):
+    def transform_input(self, x: List[np.ndarray]) -> List[np.ndarray]:
+        return x
 
-    def __init__(self, approximator: Approximator,
-                 buffer_size: int) -> None:
+    def transform_output(self, y: np.ndarray) -> np.ndarray:
+        return y
+
+    def process_update(self, x: List[np.ndarray], y: np.ndarray
+                       ) -> Optional[Tuple[List[np.ndarray], np.ndarray]]:
+        return x, y
+
+    def save(self, directory: Path) -> None:
+        pass
+
+    def load(self, directory: Path) -> None:
+        pass
+
+
+class ApproximatorSplitter:
+
+    def __init__(
+            self,
+            approximator_dictionary: Dict[GamePhase, Approximator],
+            transformer_dictionary: Dict[GamePhase, List[DataTransformer]],
+    ) -> None:
+        self._approximators = approximator_dictionary
+        self._transformers = transformer_dictionary
+
+    def get(self, observation: Observation, update_mode: bool = False) -> np.ndarray:
+        phase = observation.phase
+        transformers = self._transformers[phase]
+        approximator = self._approximators[phase]
+
+        x = observation.features
+
+        for transformer in transformers:
+            x = transformer.transform_input(x)
+
+        y = approximator.get(x, update_mode=update_mode)
+
+        for transformer in transformers:
+            y = transformer.transform_output(y)
+
+        return y
+
+    def update(self, data: TrainTuple) -> None:
+        phase = data.observation.phase
+        transformers = self._transformers[phase]
+        approximator = self._approximators[phase]
+
+        x, y = data.observation.features, data.target
+        y = np.array(y).reshape(1, 1)
+        for transformer in transformers:
+            data = transformer.process_update(x, y)
+            if data is None:
+                return
+            x, y = data
+
+        approximator.update(x, y)
+
+    def decay(self) -> None:
+        for approximator in self._approximators.values():
+            approximator.decay()
+
+
+class Buffer(DataTransformer):
+
+    def __init__(self, buffer_size: int) -> None:
         self._max_buffer_size = buffer_size
-        self._approximator = approximator
 
         self._staged_features = []
         self._staged_targets = []
 
         self._buffer_size = 0
 
-    def update(self, x: List[np.ndarray], y: np.ndarray) -> None:
+    def process_update(self, x: List[np.ndarray], y: np.ndarray
+                       ) -> Optional[Tuple[List[np.ndarray], np.ndarray]]:
         self._staged_features.append(x)
         self._staged_targets.append(y)
         self._buffer_size += len(x)
@@ -67,68 +125,45 @@ class Buffer(Approximator):
 
             ret_y, rest_y = np.split(concat_y, [self._max_buffer_size])
 
-            self._approximator.update(ret_x, ret_y)
-
             self._staged_features = [rest_x]
             self._staged_targets = [rest_y]
             self._buffer_size = len(rest_x)
 
-    def get(self, x: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
-        return self._approximator.get(x, update_mode)
+            return ret_x, ret_y
+        else:
+            return None
 
     @property
     def params(self) -> dict:
         return {
             'buffer_size': self._buffer_size,
-            'approximator': self._approximator
         }
 
-    def save(self, directory: Path) -> None:
-        self._approximator.save(directory)
 
-    def load(self, directory: Path) -> None:
-        self._approximator.load(directory)
+class TargetTransformer(DataTransformer):
 
-    def update_mode_dependent(self) -> bool:
-        return self._approximator.update_mode_dependent
-
-    def decay(self) -> None:
-        self._approximator.decay()
-
-
-class TargetTransformer(Approximator):
-
-    def __init__(self, approximator: Approximator,
-                 transformer: Transformer) -> None:
-        self._approximator = approximator
+    def __init__(self, transformer: Transformer) -> None:
         self._transformer = transformer
 
-    def update(self, x: List[np.ndarray], y: np.ndarray) -> None:
+    def process_update(self, x: List[np.ndarray], y: np.ndarray
+                       ) -> Tuple[List[np.ndarray], np.ndarray]:
         y = self._transformer.transform(y)
-        self._approximator.update(x, y)
+        return x, y
 
-    def get(self, x: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
-        val = self._approximator.get(x, update_mode)
-        return self._transformer.inverse_transform(val)
+    def transform_output(self, y: np.ndarray) -> np.ndarray:
+        return self._transformer.inverse_transform(y)
 
     @property
     def params(self) -> dict:
         return {
             'transformer': self._transformer,
-            'approximator': self._approximator
         }
 
     def save(self, directory: Path) -> None:
-        self._approximator.save(directory)
+        self._transformer.save(directory)
 
     def load(self, directory: Path) -> None:
-        self._approximator.load(directory)
-
-    def update_mode_dependent(self) -> bool:
-        return self._approximator.update_mode_dependent
-
-    def decay(self) -> None:
-        self._approximator.decay()
+        self._transformer.load(directory)
 
 
 class Torch(Approximator):
@@ -184,9 +219,6 @@ class Torch(Approximator):
     def load(self, directory: Path) -> None:
         self.model.load_state_dict(torch.load(directory / 'model.pt'))
 
-    def train_mode(self, val: bool) -> None:
-        self.model.train(val)
-
     def decay(self) -> None:
         if self._scheduler is not None:
             self._scheduler.step()
@@ -219,9 +251,6 @@ class SoftUpdateTorch(Approximator):
             target_param.data.copy_(
                 target_param.data * (1.0 - self._tau) + param.data * self._tau
             )
-
-    def update_mode_dependent(self) -> bool:
-        return True
 
     def decay(self) -> None:
         self._tau *= self._tau_decay

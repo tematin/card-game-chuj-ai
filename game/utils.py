@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+from enum import Enum
+from typing import Union, List
+
 import numpy as np
 
 from .constants import VALUES, COLOURS, CARDS_PER_PLAYER, PLAYERS
@@ -22,7 +26,7 @@ def is_eligible_choice(pot, hand, card):
 class Card:
     colour_to_str = {0: '♥',
                      1: '☘',
-                     2: '⛊',
+                     2: 'Z',
                      3: '⚈'}
     value_to_str = {5: 'D',
                     6: 'H',
@@ -36,6 +40,10 @@ class Card:
             raise ValueError("Wrong colour specified")
         self._colour = colour
         self._value = value
+        self._doubled = False
+
+    def double(self):
+        self._doubled = True
 
     def is_higher_value(self, other):
         if other.colour == self._colour:
@@ -63,6 +71,10 @@ class Card:
             val = 8
         else:
             val = 0
+
+        if self._doubled:
+            val *= 2
+
         return val
 
     def __repr__(self):
@@ -110,3 +122,17 @@ def get_eligible_choices(pot, hand):
             return [c for c in hand if c.colour == pot_colour]
         else:
             return list(hand)
+
+
+class GamePhase(Enum):
+    MOVING = 0
+    DURCH = 1
+    DECLARATION = 2
+    PLAY = 3
+
+
+@dataclass
+class Observation:
+    features: Union[dict, List[np.ndarray]]
+    actions: List
+    phase: GamePhase

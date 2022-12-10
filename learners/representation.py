@@ -4,18 +4,13 @@ import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass
 
+from game.utils import Observation
+
 
 @dataclass
 class TrainTuple:
-    features: List[np.ndarray]
+    observation: Observation
     target: float
-
-
-def unpack_train_tuple_list(train_data: List[TrainTuple]
-                            ) -> Tuple[List[np.ndarray], np.ndarray]:
-    features = concatenate_feature_list([x.features for x in train_data])
-    targets = np.array([x.target for x in train_data])
-    return features, targets
 
 
 def concatenate_feature_list(feature_list: List[List[np.ndarray]]) -> List[np.ndarray]:
@@ -29,5 +24,6 @@ def concatenate_feature_list(feature_list: List[List[np.ndarray]]) -> List[np.nd
     return ret
 
 
-def index_array_list(x: List[np.ndarray], idx: int):
-    return [xx[idx:idx+1] for xx in x]
+def index_observation(x: Observation, idx: int):
+    x.features = [xx[idx:idx+1] for xx in x.features]
+    return x

@@ -1,11 +1,12 @@
-from enum import Enum
-from itertools import permutations, combinations
-from typing import List
+from itertools import combinations
+from typing import List, Optional
 
 import numpy as np
-from .constants import COLOURS, VALUES, PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
-from .stat_trackers import Tracker
-from .utils import advance_player, is_eligible_choice, get_eligible_choices, Card
+
+from game.constants import PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
+from game.stat_trackers import Tracker, get_all_trackers
+from game.utils import advance_player, is_eligible_choice, get_eligible_choices, Card, \
+    get_deck, GamePhase, Observation
 
 
 class Hand:
@@ -103,10 +104,16 @@ class Pot:
         return self._initial_player
 
 
-class MainPhase:
-    def __init__(self, starting_player, hands):
+class PlayPhase:
+    phase = GamePhase.PLAY
+
+    def __init__(self, starting_player, hands, declared_durch=None):
         self._phasing_player = starting_player
-        self._hands = [Hand(i) for i in hands]
+        self._declared_durch = declared_durch
+        if declared_durch is not None:
+            self._phasing_player = declared_durch
+
+        self._hands = hands
         self._pot = Pot(starting_player)
         self._pot_history = []
         self._end = False
@@ -117,9 +124,7 @@ class MainPhase:
 
         if not is_eligible_choice(self._pot, self._hands[self.phasing_player], card):
             raise RuntimeError("Foul play")
-        self._play(card)
 
-    def _play(self, card):
         self._hands[self._phasing_player].remove_card(card)
         self._pot.add_card(card)
 
@@ -148,13 +153,19 @@ class MainPhase:
             pots_took[owner] += 1
             scores[owner] += pot.get_point_value()
 
-        idx = np.argmax(pots_took)
-        if pots_took[idx] == CARDS_PER_PLAYER:
-            scores = np.zeros(PLAYERS)
-            scores[idx] += DURCH_SCORE
-            return scores
+        if self._declared_durch is None:
+            idx = np.argmax(pots_took)
+            if pots_took[idx] == CARDS_PER_PLAYER:
+                scores = np.zeros(PLAYERS)
+                scores[idx] += DURCH_SCORE
         else:
-            return scores
+            sum_scores = scores.sum()
+            scores = np.zeros(PLAYERS)
+            if pots_took[self._declared_durch] == CARDS_PER_PLAYER:
+                scores[self._declared_durch] = DURCH_SCORE * 2
+            else:
+                scores[self._declared_durch] = sum_scores
+        return scores
 
     @property
     def points(self):
@@ -190,10 +201,12 @@ class MainPhase:
         )
 
 
-class CardMovingPhase:
+class MovingPhase:
+    phase = GamePhase.MOVING
+
     def __init__(self, starting_player, hands):
         self._starting_player = starting_player
-        self._hands = hands
+        self._hands = [Hand(x) for x in hands]
         self._moved_cards = [list() for _ in range(PLAYERS)]
         self._phasing_player = 0
         self._end = False
@@ -206,7 +219,7 @@ class CardMovingPhase:
             raise ValueError("Wrong number of cards")
 
         for card in cards:
-            if card not in self._hands:
+            if card not in self.current_player_hand:
                 raise ValueError("Invalid move")
             self._moved_cards[self._phasing_player].append(card)
             self._hands[self._phasing_player].remove_card(card)
@@ -220,8 +233,8 @@ class CardMovingPhase:
                     self._hands[(i + 1) % PLAYERS].add_card(card)
 
     def next_stage(self):
-        return GameTypeDeclarationPhase(hands=self._hands,
-                                        starting_player=self._starting_player)
+        return DurchPhase(hands=self._hands,
+                          starting_player=self._starting_player)
 
     @property
     def end(self):
@@ -236,10 +249,66 @@ class CardMovingPhase:
         return self._hands[self._phasing_player]
 
     def eligible_choices(self):
-        return combinations(self.current_player_hand, 2)
+        return list(combinations(self.current_player_hand, 2))
 
 
-class GameTypeDeclarationPhase:
+class DurchPhase:
+    phase = GamePhase.DURCH
+
+    def __init__(self, hands, starting_player) -> None:
+        self._hands = hands
+        self._starting_player = starting_player
+
+        self._end = False
+        self._phasing_player = starting_player
+
+        self._declared_durch = None
+
+    def play(self, declare):
+        if self._end:
+            raise RuntimeError("Game ready for next phase")
+
+        if declare:
+            self._end = True
+            self._declared_durch = self._phasing_player
+            return
+
+        self._phasing_player = (self._phasing_player + 1) % PLAYERS
+
+        if self._phasing_player == self._starting_player:
+            self._end = True
+
+    @property
+    def end(self):
+        return self._end
+
+    @property
+    def phasing_player(self):
+        return self._phasing_player
+
+    @property
+    def current_player_hand(self):
+        return self._hands[self._phasing_player]
+
+    def next_stage(self):
+        if self._declared_durch is None:
+            return DeclarationPhase(
+                hands=self._hands,
+                starting_player=self._starting_player
+            )
+        else:
+            return PlayPhase(
+                hands=self._hands,
+                starting_player=self._starting_player,
+                declared_durch=self._declared_durch
+            )
+
+    def eligible_choices(self):
+        return [True, False]
+
+
+class DeclarationPhase:
+    phase = GamePhase.DECLARATION
     _allowed_doubling_cards = [Card(colour=1, value=6),
                                Card(colour=2, value=6)]
 
@@ -258,7 +327,7 @@ class GameTypeDeclarationPhase:
             raise RuntimeError("Game ready for next phase")
 
         for card in cards:
-            if card not in self._hands:
+            if card not in self.current_player_hand:
                 raise ValueError("Invalid move")
 
             if card not in self._allowed_doubling_cards:
@@ -268,11 +337,21 @@ class GameTypeDeclarationPhase:
 
         self._phasing_player += 1
         if self._phasing_player == PLAYERS:
-            if self._round == 0 and len(self._doubled_cards) > 0:
+            if self._round == 0 and len(self._doubled_cards) == 1:
                 self._round = 1
                 self._phasing_player = 0
             else:
+                self._double_values()
                 self._end = True
+
+    def _double_values(self):
+        if len(self._doubled_cards) == 2:
+            self._doubled_cards.extend([x for x in get_deck() if x.colour == 0])
+
+        for hand in self._hands:
+            for card in hand:
+                if card in self._doubled_cards:
+                    card.double()
 
     @property
     def end(self):
@@ -283,7 +362,7 @@ class GameTypeDeclarationPhase:
         return self._phasing_player
 
     def next_stage(self):
-        return MainPhase(hands=self._hands,
+        return PlayPhase(hands=self._hands,
                          starting_player=self._starting_player)
 
     @property
@@ -292,9 +371,10 @@ class GameTypeDeclarationPhase:
 
     def eligible_choices(self):
         ret = []
-        allowed_cards = [x for x in self._hands[self._phasing_player]
-                        if x in self._allowed_doubling_cards]
-        for i in range(len(allowed_cards)):
+        allowed_cards = [x for x in self.current_player_hand
+                         if x in self._allowed_doubling_cards
+                         and x not in self._doubled_cards]
+        for i in range(len(allowed_cards) + 1):
             ret.extend(list(combinations(allowed_cards, i)))
 
         return ret
@@ -302,15 +382,20 @@ class GameTypeDeclarationPhase:
 
 class TrackedGameRound:
     def __init__(self, starting_player: int, hands: List[Hand],
-                 trackers: List[Tracker]) -> None:
-        self._game = CardMovingPhase(
+                 trackers: Optional[List[Tracker]] = None) -> None:
+        self._game = MovingPhase(
             starting_player=starting_player,
             hands=hands
         )
 
+        if trackers is None:
+            trackers = get_all_trackers()
         self._trackers = trackers
-        for tracker in trackers:
+
+        for tracker in self._trackers:
             tracker.reset(hands)
+
+        self._end = False
 
     def observe(self, player=None):
         if player is None:
@@ -318,16 +403,16 @@ class TrackedGameRound:
 
         observation = {
             'hand': self._game.current_player_hand,
-            'eligible_choices': self._game.eligible_choices()
         }
 
-        if isinstance(self._game, MainPhase):
+        if self._game.phase == GamePhase.PLAY:
             observation['pot'] = self._game.pot
 
         for tracker in self._trackers:
-            observation.update(tracker.get_observations(player))
+            tracker_observation = tracker.get_observations(player)
+            observation.update(tracker_observation)
 
-        return observation
+        return Observation(observation, self._game.eligible_choices(), self._game.phase)
 
     def play(self, action):
         for tracker in self._trackers:
@@ -335,9 +420,19 @@ class TrackedGameRound:
 
         self._game.play(action)
 
-        if isinstance(self._game, MainPhase):
+        if self._game.phase == GamePhase.PLAY:
             for tracker in self._trackers:
                 tracker.post_play_update(self._game)
+
+        if self._game.end:
+            if self._game.phase == GamePhase.PLAY:
+                self._end = True
+            else:
+                self._game = self._game.next_stage()
+
+    @property
+    def phase(self):
+        return self._game.phase
 
     @property
     def phasing_player(self):
@@ -345,11 +440,11 @@ class TrackedGameRound:
 
     @property
     def end(self):
-        return self._game.end
+        return self._end
 
     @property
     def points(self):
-        if isinstance(self._game, MainPhase):
+        if self._game.phase == GamePhase.PLAY:
             return self._game.points
         else:
             return np.zeros(PLAYERS)

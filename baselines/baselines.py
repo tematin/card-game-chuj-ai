@@ -1,26 +1,63 @@
 from abc import ABC, abstractmethod
+from typing import Any, List
 
 import numpy as np
 from collections import Counter
 
-from game.utils import Card
+from game.utils import Card, GamePhase, Observation
 
 
 class Agent(ABC):
     @abstractmethod
-    def play(self, observation: dict) -> Card:
+    def play(self, observation: Observation) -> Any:
         pass
 
 
 class RandomPlayer(Agent):
-    def play(self, observation: dict) -> Card:
-        return np.random.choice(observation['eligible_choices'])
+    def play(self, observation: Observation) -> Any:
+        idx = np.random.randint(len(observation.actions))
+        return observation.actions[idx]
+
+
+class PartialRandomPlayer(Agent):
+    def play(self, observation: Observation) -> Any:
+        phase = observation.phase
+        if phase == GamePhase.PLAY:
+            idx = np.random.randint(len(observation.actions))
+            return observation.actions[idx]
+        elif phase == GamePhase.MOVING:
+            return self._move_cards(observation.features['hand'])
+        elif phase == GamePhase.DURCH:
+            return False
+        elif phase == GamePhase.DECLARATION:
+            return ()
+
+    def _move_cards(self, hand: List[Card]) -> List[Card]:
+        values = [x.value for x in hand]
+        idx = np.argsort(values)[-2:]
+        return [hand[idx[0]], hand[idx[1]]]
 
 
 class LowPlayer(Agent):
-    def play(self, observation: dict) -> Card:
-        pot = observation['pot']
-        hand = observation['hand']
+    def play(self, observation: Observation) -> Any:
+        phase = observation.phase
+        if phase == GamePhase.PLAY:
+            return self._play_phase(observation.features)
+        elif phase == GamePhase.MOVING:
+            return self._move_cards(observation.features['hand'])
+        elif phase == GamePhase.DURCH:
+            return False
+        elif phase == GamePhase.DECLARATION:
+            return ()
+
+    def _move_cards(self, hand: List[Card]) -> List[Card]:
+        values = [x.value for x in hand]
+        idx = np.argsort(values)[-2:]
+        return [hand[idx[0]], hand[idx[1]]]
+
+    def _play_phase(self, features: dict) -> Card:
+        pot = features['pot']
+        hand = features['hand']
 
         if pot.is_empty():
             smallest_colour = get_smallest_colour(hand)

@@ -2,28 +2,45 @@ from abc import ABC
 
 import numpy as np
 from .constants import PLAYERS
-from .utils import get_deck
-from .game import MainPhase, CardMovingPhase, GameTypeDeclarationPhase
+from .utils import get_deck, Card, GamePhase
+
+
+def get_all_trackers():
+    return [
+        DurchDeclarationTracker(),
+        ScoreTracker(),
+        MovedCardsTracker(),
+        ReceivedCarsTracker(),
+        DoubledCardsTracker(),
+        RemainingPossibleCardsTracker(),
+        DurchEligibilityTracker()
+    ]
+
 
 class Tracker(ABC):
     def reset(self, hands):
         pass
 
     def pre_play_update(self, game, card):
-        if isinstance(game, CardMovingPhase):
-            self._main_phase_pre_play_update(game, card)
-        elif isinstance(game, GameTypeDeclarationPhase):
-            self._card_moving_pre_play_update(game, card)
-        elif isinstance(game, MainPhase):
-            self._main_phase_pre_play_update(game, card)
+        if game.phase == GamePhase.PLAY:
+            self._play_phase_pre_play_update(game, card)
+        elif game.phase == GamePhase.DECLARATION:
+            self._declaration_pre_play_update(game, card)
+        elif game.phase == GamePhase.MOVING:
+            self._moving_pre_play_update(game, card)
+        elif game.phase == GamePhase.DURCH:
+            self._durch_pre_play_update(game, card)
 
-    def _main_phase_pre_play_update(self, game, card):
+    def _play_phase_pre_play_update(self, game, card):
         pass
 
-    def _card_moving_pre_play_update(self, game, card):
+    def _declaration_pre_play_update(self, game, cards):
         pass
 
-    def _type_declaration_pre_play_update(self, game, card):
+    def _durch_pre_play_update(self, game, declared):
+        pass
+
+    def _moving_pre_play_update(self, game, cards):
         pass
 
     def post_play_update(self, game):
@@ -33,7 +50,7 @@ class Tracker(ABC):
         pass
 
 
-class RemainingPossibleCards(Tracker):
+class RemainingPossibleCardsTracker(Tracker):
     def __init__(self):
         self._possible_cards = None
 
@@ -45,7 +62,7 @@ class RemainingPossibleCards(Tracker):
                 for j in range(PLAYERS - 1):
                     self._possible_cards[i][j].remove(card)
 
-    def _main_phase_pre_play_update(self, game, card):
+    def _play_phase_pre_play_update(self, game, card):
         player = game.phasing_player
 
         for i in range(PLAYERS):
@@ -68,6 +85,28 @@ class RemainingPossibleCards(Tracker):
             j = (i - player) % PLAYERS - 1
             self._possible_cards[i][j] = [c for c in self._possible_cards[i][j]
                                           if c.colour != pot_colour]
+
+    def _moving_pre_play_update(self, game, cards):
+        player = game.phasing_player
+
+        for card in cards:
+            for i in range(0, PLAYERS - 1):
+                self._possible_cards[(player + 1) % PLAYERS][i].remove(card)
+
+            self._possible_cards[player][0].append(card)
+
+    def _declaration_pre_play_update(self, game, cards):
+        player = game.phasing_player
+
+        for i in range(PLAYERS):
+            if i == player:
+                continue
+            for j in range(PLAYERS - 1):
+                if (i + j) % PLAYERS == player:
+                    continue
+                for card in cards:
+                    if card in self._possible_cards[i][j]:
+                        self._possible_cards[i][j].remove(card)
 
     def get_observations(self, player):
         return {'possible_cards': self._possible_cards[player]}
@@ -112,3 +151,56 @@ class DurchEligibilityTracker(Tracker):
             ret = [False for _ in range(PLAYERS)]
 
         return {'eligible_durch': ret}
+
+
+class MovedCardsTracker(Tracker):
+    def reset(self, hands):
+        self._moved_cards = [[]] * PLAYERS
+
+    def _moving_pre_play_update(self, game, cards):
+        player = game.phasing_player
+        self._moved_cards[player] = cards
+
+    def get_observations(self, player):
+        return {'moved_cards': self._moved_cards[player]}
+
+
+class ReceivedCarsTracker(Tracker):
+    def reset(self, hands):
+        self._moved_cards = [[]] * PLAYERS
+
+    def _moving_pre_play_update(self, game, cards):
+        player = game.phasing_player
+        self._moved_cards[(player + 1) % PLAYERS] = cards
+
+    def get_observations(self, player):
+        return {'received_cards': self._moved_cards[player]}
+
+
+class DoubledCardsTracker(Tracker):
+    def reset(self, hands):
+        self._smaller_doubled = False
+        self._bigger_doubled = False
+
+    def _declaration_pre_play_update(self, game, cards):
+        if Card(colour=1, value=6) in cards:
+            self._smaller_doubled = True
+
+        if Card(colour=2, value=6) in cards:
+            self._bigger_doubled = True
+
+    def get_observations(self, player):
+        return {'doubled': [self._smaller_doubled, self._bigger_doubled]}
+
+
+class DurchDeclarationTracker(Tracker):
+    def reset(self, hands):
+        self._declared = np.full(PLAYERS, 0.0)
+
+    def _durch_pre_play_update(self, game, declared):
+        if declared:
+            self._declared[game.phasing_player] = 1
+
+    def get_observations(self, player):
+        return {'declared_durch': [self._declared[(player + j) % PLAYERS]
+                                   for j in range(PLAYERS)]}

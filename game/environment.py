@@ -2,13 +2,12 @@ import numpy as np
 from copy import deepcopy
 
 from .constants import PLAYERS
-from .game import MainPhase, TrackedGameRound
-from .utils import generate_hands
+from .game import PlayPhase, TrackedGameRound
+from .utils import generate_hands, GamePhase
 
 
 class Environment:
-    def __init__(self, trackers, reward, rival):
-        self._trackers = trackers
+    def __init__(self, reward, rival):
         self._reward = reward
         self._rival = rival
 
@@ -19,7 +18,6 @@ class Environment:
         self._game = TrackedGameRound(
             starting_player=np.random.choice(np.arange(PLAYERS)),
             hands=hands,
-            trackers=self._trackers
         )
 
         self._play_for_rivals()
@@ -29,13 +27,16 @@ class Environment:
 
         return observation
 
-    def step(self, card):
-        self._game.play(card)
+    def step(self, action):
+        self._game.play(action)
 
         self._play_for_rivals()
 
         observation = self._game.observe(player=0)
-        reward = self._reward.step(observation)
+
+        reward = 0
+        if self._game.phase == GamePhase.PLAY:
+            reward = self._reward.step(observation)
 
         return observation, reward, self._game.end
 
@@ -43,26 +44,25 @@ class Environment:
         while self._game.phasing_player != 0 and not self._game.end:
             observation = self._game.observe()
 
-            card = self._rival.play(observation)
-            self._game.play(card)
+            action = self._rival.play(observation)
+            self._game.play(action)
 
 
 def finish_game(tracked_game, players):
     while not tracked_game.end:
         observation = tracked_game.observe()
-        card = players[tracked_game.phasing_player].play(observation)
-        tracked_game.play(card)
+        action = players[tracked_game.phasing_player].play(observation)
+        tracked_game.play(action)
 
     return tracked_game
 
 
 class Tester:
-    def __init__(self, game_count, trackers, seed=123456):
+    def __init__(self, game_count, seed=123456):
         if seed is not None:
             np.random.seed(seed)
         self.hands_list = [generate_hands() for _ in range(game_count)]
         self.std_scale = 1 / np.sqrt(game_count)
-        self._trackers = trackers
 
     def _simulate(self, player, adversary):
         points = []
@@ -78,7 +78,6 @@ class Tester:
                 game = TrackedGameRound(
                     starting_player=0,
                     hands=hand_copy,
-                    trackers=self._trackers
                 )
                 game = finish_game(game, player_orders[i])
                 points_gained = game.points
@@ -113,7 +112,7 @@ class Tester:
 
 
 def analyze_game_round(players, initial_player=0):
-    game = MainPhase(initial_player)
+    game = PlayPhase(initial_player)
     while True:
         observation = game.observe()
         card = players[game.phasing_player].play(observation)

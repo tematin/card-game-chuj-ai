@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Tuple, List, Union
 import numpy as np
 
 from learners.feature_generators import FeatureGenerator
-from learners.representation import concatenate_feature_list, index_array_list
+from learners.representation import concatenate_feature_list, index_observation
 from baselines.baselines import Agent
 from game.environment import Environment
 
@@ -15,6 +16,12 @@ class Transformer(ABC):
 
     @abstractmethod
     def inverse_transform(self, x: Union[np.ndarray, float]) -> Union[np.ndarray, float]:
+        pass
+
+    def save(self, path: Path) -> None:
+        pass
+
+    def load(self, path: Path) -> None:
         pass
 
 
@@ -39,6 +46,14 @@ class MultiDimensionalScaler(Transformer):
             'std': self._std
         }
 
+    def save(self, path: Path) -> None:
+        np.savez(path / 'scaler.npz', mean=self._mean, std=self._std)
+
+    def load(self, path: Path) -> None:
+        arrays = np.load(str(path / 'scaler.npz'))
+        self._mean = arrays['mean']
+        self._std = arrays['std']
+
 
 class SimpleScaler(Transformer):
     def fit(self, x: np.ndarray) -> None:
@@ -57,6 +72,14 @@ class SimpleScaler(Transformer):
             'mean': self._mean,
             'std': self._std
         }
+
+    def save(self, path: Path) -> None:
+        np.savez(path / 'scaler.npz', mean=self._mean, std=self._std)
+
+    def load(self, path: Path) -> None:
+        arrays = np.load(str(path / 'scaler.npz'))
+        self._mean = arrays['mean']
+        self._std = arrays['std']
 
 
 def generate_dataset(
@@ -83,7 +106,7 @@ def generate_dataset(
             else:
                 action_feature, cards = feature_generator.state_action(observation)
                 idx = cards.index(card)
-                feature = index_array_list(action_feature, idx)
+                feature = index_observation(action_feature, idx)
 
             observation, reward, done = env.step(card)
 

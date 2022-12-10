@@ -3,13 +3,14 @@ from dataclasses import dataclass
 from typing import List, Any, Optional, Tuple, Union, TypeVar
 import numpy as np
 
+from game.utils import Observation
 
 T = TypeVar('T')
 
 
 @dataclass
 class MemoryStep:
-    features: List[np.ndarray]
+    observation: Optional[Observation]
     action_took: Optional[int]
     reward: float
 
@@ -35,6 +36,7 @@ class Memory(ABC):
 
 
 class _InnerListStorage:
+
     def __init__(self, items: Optional[List[List[Any]]] = None):
         self._items = items or []
 
