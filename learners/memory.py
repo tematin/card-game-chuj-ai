@@ -192,6 +192,7 @@ class ReplayMemory(Memory):
             end = start + self._yield_length
 
             ret.append(self._steps[idx, start:end])
+
         return ret
 
     @property

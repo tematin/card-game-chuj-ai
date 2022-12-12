@@ -80,11 +80,11 @@ class ApproximatorSplitter:
         return y
 
     def update(self, data: TrainTuple) -> None:
-        phase = data.observation.phase
+        phase = data.phase
         transformers = self._transformers[phase]
         approximator = self._approximators[phase]
 
-        x, y = data.observation.features, data.target
+        x, y = data.features, data.target
         y = np.array(y).reshape(1, 1)
         for transformer in transformers:
             data = transformer.process_update(x, y)

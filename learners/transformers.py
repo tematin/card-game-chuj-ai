@@ -1,15 +1,14 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Tuple, List, Union
+from typing import Union, List
 import numpy as np
-
-from learners.feature_generators import FeatureGenerator
-from learners.representation import concatenate_feature_list, index_observation
-from baselines.baselines import Agent
-from game.environment import Environment
 
 
 class Transformer(ABC):
+    @abstractmethod
+    def fit(self, x: Union[np.ndarray, float]) -> None:
+        pass
+
     @abstractmethod
     def transform(self, x: Union[np.ndarray, float]) -> Union[np.ndarray, float]:
         pass
@@ -82,38 +81,47 @@ class SimpleScaler(Transformer):
         self._std = arrays['std']
 
 
-def generate_dataset(
-        env: Environment,
-        agent: Agent,
-        episodes: int,
-        feature_generator: FeatureGenerator,
-        exclude_actions: bool = False
-) -> Tuple[List[np.ndarray], np.ndarray]:
-    features = []
-    final_rewards = []
+class ListTransformer:
+    def __init__(self, transformers: List[Transformer]) -> None:
+        self._transformers = transformers
 
-    for _ in range(episodes):
-        observation = env.reset()
+    def fit(self, x: List[np.ndarray]) -> None:
+        for transformer, arr in zip(self._transformers, x):
+            transformer.fit(arr)
 
-        rewards = []
+    def transform(self, x: List[np.ndarray]) -> List[np.ndarray]:
+        ret = []
+        for transformer, arr in zip(self._transformers, x):
+            ret.append(transformer.transform(arr))
+        return ret
 
-        done = False
-        while not done:
-            card = agent.play(observation)
+    def inverse_transform(self, x: List[np.ndarray]) -> List[np.ndarray]:
+        ret = []
+        for transformer, arr in zip(self._transformers, x):
+            ret.append(transformer.inverse_transform(arr))
+        return ret
 
-            if exclude_actions:
-                feature = feature_generator.state(observation)
-            else:
-                action_feature, cards = feature_generator.state_action(observation)
-                idx = cards.index(card)
-                feature = index_observation(action_feature, idx)
+    def save(self, path: Path) -> None:
+        for i, transformer in enumerate(self._transformers):
+            transformer.save(path / str(i))
 
-            observation, reward, done = env.step(card)
+    def load(self, path: Path) -> None:
+        for i, transformer in enumerate(self._transformers):
+            transformer.load(path / str(i))
 
-            features.append(feature)
-            rewards.append(reward)
 
-        rewards = np.cumsum(np.array(rewards)[::-1])[::-1]
-        final_rewards.append(rewards.reshape(-1, 1))
+class DummyListTransformer:
+    def fit(self, x: List[np.ndarray]) -> None:
+        pass
 
-    return concatenate_feature_list(features), np.concatenate(final_rewards, axis=0)
+    def transform(self, x: List[np.ndarray]) -> List[np.ndarray]:
+        return x
+
+    def inverse_transform(self, x: List[np.ndarray]) -> List[np.ndarray]:
+        return x
+
+    def save(self, path: Path) -> None:
+        pass
+
+    def load(self, path: Path) -> None:
+        pass

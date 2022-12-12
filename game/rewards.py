@@ -15,7 +15,7 @@ class OrdinaryReward(Reward):
         self._total_given = 0
 
     def step(self, observation):
-        score = observation['score']
+        score = observation.features['score']
 
         took = score[0]
         given = sum(score) - took

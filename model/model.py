@@ -147,6 +147,52 @@ class MainNetwork(nn.Module):
         return self.final_dense(dense)
 
 
+class SimpleMainNetwork(nn.Module):
+    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+        super().__init__()
+
+        self.conv_broad = BlockConvResLayer(
+            depth=depth, channel_size=80, kernel_width=(1, 3),
+            padding='same', dropout_p=dropout_p, leak=leak
+        )
+
+        conv_bridge = BlockConvResLayer(
+            depth=depth, channel_size=160, kernel_width=(1, 5),
+            padding='valid', dropout_p=dropout_p, leak=leak
+        )
+
+        colour_conv = ResLayer(
+            channel_size=160, kernel_width=(1, 1), padding='same',
+            dropout_p=dropout_p, leak=leak, activate=False
+        )
+
+        self.bridge = SkipConnection(
+            main_layer=nn.Sequential(conv_bridge, colour_conv),
+            downsample=nn.LazyConv2d(out_channels=160, kernel_size=(1, 9), padding='valid'),
+            activation=nn.LeakyReLU(leak)
+        )
+
+        self.conv_tight = BlockConvResLayer(
+            depth=depth, channel_size=40, kernel_width=(1, 1),
+            padding='same', dropout_p=dropout_p, leak=leak
+        )
+
+        self.dense = BlockDenseSkipConnections(dense_sizes)
+
+        self.final_dense = nn.LazyLinear(1)
+
+    def forward(self, card_encoding):
+        broad = self.conv_broad(card_encoding)
+
+        tight = self.bridge(broad)
+
+        flat = torch.flatten(self.conv_tight(tight), start_dim=1)
+
+        dense = self.dense(flat)
+
+        return self.final_dense(dense)
+
+
 class SimpleNetwork(nn.Module):
     def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2):
         super().__init__()

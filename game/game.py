@@ -304,7 +304,7 @@ class DurchPhase:
             )
 
     def eligible_choices(self):
-        return [True, False]
+        return [1, 0]
 
 
 class DeclarationPhase:

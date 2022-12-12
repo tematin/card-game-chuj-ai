@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
-from game.utils import Observation
+from game.utils import Observation, GamePhase
 
 
 @dataclass
 class TrainTuple:
-    observation: Observation
+    features: Optional[List[np.ndarray]]
+    phase: GamePhase
     target: float
 
 
@@ -24,6 +25,10 @@ def concatenate_feature_list(feature_list: List[List[np.ndarray]]) -> List[np.nd
     return ret
 
 
-def index_observation(x: Observation, idx: int):
-    x.features = [xx[idx:idx+1] for xx in x.features]
-    return x
+def index_features(x: List[np.ndarray], idx: int):
+    return [xx[idx:idx+1] for xx in x]
+
+
+def index_observation(features: List[np.ndarray], idx: int):
+    features = [xx[idx:idx+1] for xx in features]
+    return features

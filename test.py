@@ -13,7 +13,7 @@ from game.stat_trackers import ScoreTracker, DurchEligibilityTracker, \
 from learners.explorers import EpsilonGreedy, ExplorationCombiner, Random, Softmax
 from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
     get_hand, get_pot_cards, get_pot_value, get_pot_size_indicators, get_eligible_durch, \
-    get_current_score, get_possible_cards
+    get_current_score, get_possible_cards, generate_dataset
 from learners.memory import ReplayMemory
 from learners.runner import TrainRun
 from learners.updaters import Step, MaximumValue
@@ -22,7 +22,7 @@ from model.model import MainNetwork, SimpleNetwork, BlockConvResLayer, ResLayer,
 from learners.trainers import SimpleTrainer, DoubleTrainer
 from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
     Approximator
-from learners.transformers import generate_dataset, MultiDimensionalScaler, SimpleScaler
+from learners.transformers import MultiDimensionalScaler, SimpleScaler
 
 
 reward = OrdinaryReward(0.5)

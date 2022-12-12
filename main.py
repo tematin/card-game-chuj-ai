@@ -11,31 +11,31 @@ from game.rewards import OrdinaryReward
 from game.utils import GamePhase
 from learners.explorers import EpsilonGreedy, ExplorationCombiner, Random, Softmax, ExplorationSwitcher
 from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
-    get_pot_value, get_pot_size_indicators, FeatureGeneratorSplitter
+    get_pot_value, get_pot_size_indicators, FeatureGeneratorSplitter, generate_dataset
 from learners.memory import ReplayMemory
 from learners.runner import TrainRun
 from learners.updaters import Step, MaximumValue
-from model.model import MainNetwork, SimpleNetwork
+from model.model import MainNetwork, SimpleNetwork, SimpleMainNetwork
 from learners.trainers import DoubleTrainer
 from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
-    Approximator
-from learners.transformers import generate_dataset, MultiDimensionalScaler, SimpleScaler
+    Approximator, ApproximatorSplitter
+from learners.transformers import MultiDimensionalScaler, SimpleScaler, ListTransformer
 
-reward = OrdinaryReward(0.5)
+reward = OrdinaryReward(0.3)
 
 feature_generator_dict = {
-    GamePhase.MOVING: Lambda2DEmbedder(['hand'], []),
+    GamePhase.MOVING: Lambda2DEmbedder(['hand']),
     GamePhase.DURCH: Lambda2DEmbedder(
         ['hand',
          'moved_cards',
          'received_cards'],
-        []
-    ),
+        [],
+        action_list=[0, 1]
+),
     GamePhase.DECLARATION: Lambda2DEmbedder(
         ['hand',
          'moved_cards',
          'received_cards'],
-        [],
     ),
     GamePhase.PLAY: Lambda2DEmbedder(
         [get_highest_pot_card,
@@ -52,47 +52,65 @@ feature_generator_dict = {
     ),
 }
 
-
 X, y = generate_dataset(
     env=Environment(
         reward=reward,
         rival=RandomPlayer()
     ),
-    episodes=1000,
+    episodes=10000,
     agent=RandomPlayer(),
-    feature_generator=feature_generator
+    feature_generator=FeatureGeneratorSplitter(feature_generator_dict)
 )
 
 
-scaler_3d = MultiDimensionalScaler((0, 2, 3))
-scaler_flat = MultiDimensionalScaler((0,))
-scaler_rewards = SimpleScaler()
+transformers = {
+    GamePhase.MOVING: ListTransformer([MultiDimensionalScaler((0, 2, 3))]),
+    GamePhase.DURCH: ListTransformer([MultiDimensionalScaler((0, 2, 3)), SimpleScaler()]),
+    GamePhase.DECLARATION: ListTransformer([MultiDimensionalScaler((0, 2, 3))]),
+    GamePhase.PLAY: ListTransformer([MultiDimensionalScaler((0, 2, 3)), MultiDimensionalScaler((0,))])
+}
 
-scaler_3d.fit(X[0])
-scaler_flat.fit(X[1])
-scaler_rewards.fit(y)
+transformer_dictionary = {}
+approximators_dictionary = {}
 
+models = {
+    GamePhase.DURCH: MainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
+    GamePhase.MOVING: SimpleMainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
+    GamePhase.DECLARATION: SimpleMainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
+    GamePhase.PLAY: MainNetwork(dense_sizes=[[200, 200], [200, 100]], depth=2)
+}
 
-while True:
-    model = MainNetwork([[200, 200]], 1).to("cuda")
-    y = model(torch.tensor(scaler_3d.transform(X[0])).float().to("cuda"),
-              torch.tensor(scaler_flat.transform(X[1])).float().to("cuda")).detach().to("cpu").numpy()
-    if np.abs(y.mean()) < 0.02:
-        break
+for key in GamePhase:
+    transformers[key].fit(X[key])
 
-approx = SoftUpdateTorch(
-    tau=1e-3,
-    torch_model=Torch(
-        model=model,
-        optimizer=torch.optim.Adam,
-        optimizer_kwargs={'lr': 3e-5},
-        loss=nn.HuberLoss(delta=2),
+    target_transformer = SimpleScaler()
+    target_transformer.fit(y[key])
+
+    transformer = [Buffer(128), TargetTransformer(target_transformer)]
+    transformer_dictionary[key] = transformer
+
+    models[key] = SoftUpdateTorch(
+        tau=1e-3,
+        torch_model=Torch(
+            model=models[key],
+            loss=nn.HuberLoss(delta=1.5),
+            optimizer=torch.optim.Adam,
+            optimizer_kwargs={'lr': 1e-4},
+        )
     )
+
+
+feature_generator = FeatureGeneratorSplitter(feature_generator_dict, transformers)
+
+
+approximator = ApproximatorSplitter(
+    approximator_dictionary=models,
+    transformer_dictionary=transformer_dictionary
 )
 
 
 agent = DoubleTrainer(
-    q=None,
+    q=approximator,
     memory=ReplayMemory(
         yield_length=2,
         memory_size=2000,
@@ -109,7 +127,6 @@ agent = DoubleTrainer(
             Softmax(0.03)
         ]
     ),
-    feature_transformers=[scaler_3d, scaler_flat],
 )
 
 
@@ -122,7 +139,30 @@ runner = TrainRun(
     ),
     benchmark=LowPlayer(),
     eval_freq=2000,
-    checkpoint_dir=Path('C:/Python/Repos/chuj/runs/double_q_baseline')
+#    checkpoint_dir=Path('C:/Python/Repos/chuj/runs/double_q_baseline')
 )
 
 runner.train(16000)
+
+
+
+took = 42 / 3
+total = 42
+
+took = 21 / 3
+total = 21
+
+
+alpha = 0.33333
+
+given = total - took
+print(given * alpha - took * (1 - alpha))
+
+
+
+
+
+
+
+
+

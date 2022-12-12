@@ -15,6 +15,16 @@ class Agent(ABC):
 
 class RandomPlayer(Agent):
     def play(self, observation: Observation) -> Any:
+        if observation.phase == GamePhase.DURCH:
+            if np.random.rand() < 0.985:
+                return False
+            else:
+                return True
+
+        if observation.phase == GamePhase.DECLARATION:
+            if np.random.rand() < 0.5:
+                return ()
+
         idx = np.random.randint(len(observation.actions))
         return observation.actions[idx]
 

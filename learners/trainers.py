@@ -51,9 +51,10 @@ def fill_update_steps(update_steps: Memory, reward: float):
     for i in range(update_steps.yield_length - 1):
         update_steps.set(
             UpdateStep(
-                observation=None,
+                features=None,
                 value=0,
-                reward=reward if i == 0 else 0
+                reward=reward if i == 0 else 0,
+                phase=None
             ),
             skip=True
         )
@@ -101,6 +102,7 @@ class DoubleTrainer(Trainer, Agent):
             idx = np.random.choice(np.arange(len(probs)), p=probs)
 
             rand_bool = bool(np.random.randint(2))
+
             memory_step = MemoryStep(
                 observation=observation,
                 action_took=idx,
@@ -136,12 +138,14 @@ class DoubleTrainer(Trainer, Agent):
             update_steps = []
 
             for memory in memory_list:
+
                 if memory.observation:
                     q_vals = self._q[segment].get(memory.observation, update_mode=True)
                     other_q_vals = self._q[1 - segment].get(memory.observation, update_mode=True)
 
                     step = UpdateStep(
-                        observation=index_observation(memory.observation, memory.action_took),
+                        features=index_observation(memory.observation.features,
+                                                   memory.action_took),
                         value=self._value_calculator.double(
                             action_values=q_vals,
                             action_took=memory.action_took,
@@ -149,12 +153,15 @@ class DoubleTrainer(Trainer, Agent):
                             reference_values=other_q_vals
                         ),
                         reward=memory.reward,
+                        phase=memory.observation.phase
                     )
+
                 else:
                     step = UpdateStep(
-                        observation=None,
+                        features=None,
                         value=0,
-                        reward=memory.reward
+                        reward=memory.reward,
+                        phase=None
                     )
 
                 update_steps.append(step)
@@ -172,7 +179,6 @@ class DoubleTrainer(Trainer, Agent):
             'feature_generator': self._feature_generator,
             'explorer': self._explorer,
             'value_calculator': self._value_calculator,
-            'feature_transformers': self._feature_transformers,
         }
 
     def save(self, directory: Path) -> None:
@@ -188,3 +194,12 @@ class DoubleTrainer(Trainer, Agent):
         card = self.step(observation)
         self.train = True
         return card
+
+
+def validate_memory(memory):
+    for slot in memory._steps._items:
+        for step in slot:
+            if step.features is None:
+                pass
+            else:
+                assert step.features.features[0].shape[0] > 0

@@ -3,13 +3,14 @@ from typing import Tuple, Optional, List, TypeVar
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 
-from game.utils import Observation
+from game.utils import Observation, GamePhase
 from learners.representation import TrainTuple
 
 
 @dataclass
 class UpdateStep:
-    observation: Optional[Observation]
+    features: Optional[List[np.ndarray]]
+    phase: Optional[GamePhase]
     value: float
     reward: float
 
@@ -32,7 +33,8 @@ class Step(StepUpdater):
 
     def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
         return TrainTuple(
-            steps[0].observation,
+            steps[0].features,
+            steps[0].phase,
             steps[1].reward + self._discount * steps[1].value
         )
 
@@ -54,7 +56,8 @@ class NStep(StepUpdater):
 
     def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
         return TrainTuple(
-            steps[0].observation,
+            steps[0].features,
+            steps[0].phase,
             (rewards(steps)[1:self._steps + 1] * self._discounted_array).sum()
             + self._discounted_array[-1]
             * steps[self._steps].value
@@ -97,7 +100,7 @@ class TDLambda(StepUpdater):
         calculated_rewards = np.array(calculated_rewards)
         reward = (calculated_rewards * self._lambda_weights).sum()
 
-        return TrainTuple(steps[0].observation, reward)
+        return TrainTuple(steps[0].features, steps[0].phase, reward)
 
     @property
     def length(self) -> int:
