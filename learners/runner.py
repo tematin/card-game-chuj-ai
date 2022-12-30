@@ -6,6 +6,7 @@ import shutil
 from baselines.baselines import Agent
 from game.environment import Tester, Environment
 from learners.trainers import Trainer
+from debug.timer import timer
 
 
 class TrainRun:
@@ -36,18 +37,19 @@ class TrainRun:
         self._trained_episodes = 0
         self._recent_average_reward = 0
 
+    @timer.trace("Whole Episode")
     def _train_episode(self) -> float:
         total_rewards = 0
 
         self._agent.train = True
-        observation = self._env.reset()
+        observation, actions = self._env.reset()
 
         done = False
         reward = 0
 
         while not done:
-            card = self._agent.step(observation, reward=reward)
-            observation, reward, done = self._env.step(card)
+            card = self._agent.step(observation, actions, reward=reward)
+            observation, actions, reward, done = self._env.step(card)
             total_rewards += reward
 
         self._agent.reset(reward)

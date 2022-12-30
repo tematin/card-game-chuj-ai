@@ -129,10 +129,3 @@ class GamePhase(Enum):
     DURCH = 1
     DECLARATION = 2
     PLAY = 3
-
-
-@dataclass
-class Observation:
-    features: Union[dict, List[np.ndarray]]
-    actions: List
-    phase: GamePhase

@@ -1,12 +1,12 @@
 from itertools import combinations
-from typing import List, Optional
+from typing import List, Optional, Any, Tuple
 
 import numpy as np
 
 from game.constants import PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
 from game.stat_trackers import Tracker, get_all_trackers
 from game.utils import advance_player, is_eligible_choice, get_eligible_choices, Card, \
-    get_deck, GamePhase, Observation
+    get_deck, GamePhase
 
 
 class Hand:
@@ -397,22 +397,25 @@ class TrackedGameRound:
 
         self._end = False
 
-    def observe(self, player=None):
+    def observe(self, player=None) -> Tuple[dict, List[Any]]:
         if player is None:
             player = self._game.phasing_player
 
         observation = {
             'hand': self._game.current_player_hand,
+            'phase': self._game.phase
         }
 
         if self._game.phase == GamePhase.PLAY:
             observation['pot'] = self._game.pot
+        else:
+            observation['pot'] = Pot(0)
 
         for tracker in self._trackers:
             tracker_observation = tracker.get_observations(player)
             observation.update(tracker_observation)
 
-        return Observation(observation, self._game.eligible_choices(), self._game.phase)
+        return observation, self._game.eligible_choices()
 
     def play(self, action):
         for tracker in self._trackers:

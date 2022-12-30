@@ -5,33 +5,38 @@ from pathlib import Path
 
 import numpy as np
 from copy import deepcopy
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from abc import abstractmethod, ABC
 
+from learners.approximators import Approximator
 from learners.transformers import Transformer
 from learners.representation import index_observation
 from learners.updaters import StepUpdater, UpdateStep, ValueCalculator
 from learners.feature_generators import FeatureGenerator
 from learners.explorers import Explorer
-from learners.approximators import Approximator, ApproximatorSplitter
 from learners.memory import Memory, MemoryStep, EmptyMemory, PassthroughMemory
 from baselines.baselines import Agent
-from game.utils import Card, Observation
+from game.utils import Card, GamePhase
+from debug.timer import timer
 
 
 class Trainer(ABC):
     @abstractmethod
-    def reset(self, reward: float) -> None:
+    def reset(self, reward: float, run_id: int) -> None:
         pass
 
     @abstractmethod
-    def step(self, observation: dict, reward=None) -> Card:
+    def step(self, observations: List[dict], action_list: List[List[Any]],
+             reward: List[Optional[float]]) -> List[Any]:
         pass
 
     def save(self, directory: Path) -> None:
         pass
 
-    def debug(self, observation: dict) -> dict:
+    def load(self, directory: Path) -> None:
+        pass
+
+    def debug(self, observation: dict, actions: List[Any]) -> dict:
         return {}
 
 
@@ -39,7 +44,7 @@ def fill_memory(memory: Memory, reward: float):
     for i in range(memory.yield_length - 1):
         memory.set(
             MemoryStep(
-                observation=None,
+                features=None,
                 action_took=None,
                 reward=reward if i == 0 else 0
             ),
@@ -53,8 +58,7 @@ def fill_update_steps(update_steps: Memory, reward: float):
             UpdateStep(
                 features=None,
                 value=0,
-                reward=reward if i == 0 else 0,
-                phase=None
+                reward=reward if i == 0 else 0
             ),
             skip=True
         )
@@ -62,41 +66,47 @@ def fill_update_steps(update_steps: Memory, reward: float):
 
 class DoubleTrainer(Trainer, Agent):
 
-    def __init__(self, q: ApproximatorSplitter,
+    def __init__(self, q: Approximator,
                  updater: StepUpdater,
                  value_calculator: ValueCalculator,
                  feature_generator: FeatureGenerator,
                  explorer: Explorer,
                  memory: Memory,
-                 ) -> None:
-
-        self.train = True
+                 run_count: int) -> None:
         self._q = [q, deepcopy(q)]
         self._updater = updater
-        self._memories = [memory, deepcopy(memory)]
-
+        self._memories = [[deepcopy(memory) for _ in range(2)]
+                          for _ in range(run_count)]
+        self._run_count = run_count
         self._feature_generator = feature_generator
         self._explorer = explorer
         self._value_calculator = value_calculator
+        self._episodes = 0
 
-    def reset(self, reward: float) -> None:
+    def reset(self, reward: float, run_id: int) -> None:
         for i in range(2):
-            fill_memory(self._memories[i], reward)
-            self._memories[i].reset_episode()
+            fill_memory(self._memories[run_id][i], reward)
+            self._memories[run_id][i].reset_episode()
             self._q[i].decay()
+            self._train_from_memory(i)
+
         self._explorer.decay()
+        self._episodes += 1
 
-    def step(self, observation: Observation, reward=None) -> Card:
-        observation.features = self._feature_generator.state_action(observation)
+    @timer.trace("Trainer Step")
+    def step(self, observations: List[dict], action_list: List[List[Any]],
+             reward: List[Optional[float]]) -> List[Any]:
 
-        q1_vals = self._q[0].get(observation)
-        q2_vals = self._q[1].get(observation)
-        q_vals = (q1_vals + q2_vals) / 2
+        features = [self._feature_generator.state_action(observation, actions)
+                    for observation, actions in zip(observations, action_list)]
 
-        if not self.train:
-            idx = np.argmax(q_vals)
+        q1_vals = self._q[0].get_from_list(features)
+        q2_vals = self._q[1].get_from_list(features)
 
-        else:
+        actions_to_play = []
+        for run_id in range(self._run_count):
+            q_vals = (q1_vals[run_id] + q2_vals[run_id]) / 2
+
             probs = self._explorer.get_probabilities(q_vals)
 
             idx = np.random.choice(np.arange(len(probs)), p=probs)
@@ -104,71 +114,82 @@ class DoubleTrainer(Trainer, Agent):
             rand_bool = bool(np.random.randint(2))
 
             memory_step = MemoryStep(
-                observation=observation,
+                features=features[run_id],
                 action_took=idx,
-                reward=reward
+                reward=reward[run_id]
             )
 
-            self._memories[0].set(memory_step, skip=rand_bool)
-            self._memories[1].set(memory_step, skip=not rand_bool)
+            self._memories[run_id][0].set(memory_step, skip=rand_bool)
+            self._memories[run_id][1].set(memory_step, skip=not rand_bool)
 
-        if self.train:
-            for i in range(2):
-                self._train_from_memory(i)
+            actions_to_play.append(action_list[run_id][idx])
 
-        return observation.actions[idx]
+        return actions_to_play
 
-    def debug(self, observation: Observation) -> dict:
-        observation.features = self._feature_generator.state_action(observation)
-        q1_vals = self._q[0].get(observation)
-        q2_vals = self._q[1].get(observation)
+    def debug(self, observation: dict, actions: List[Any]) -> dict:
+        features = self._feature_generator.state_action(observation, actions)
+        q1_vals = self._q[0].get(features)
+        q2_vals = self._q[1].get(features)
         q_vals = (q1_vals + q2_vals) / 2
 
         return {
-            'actions': observation.actions,
+            'actions': actions,
             'q1_vals': q1_vals,
             'q2_vals': q2_vals,
             'q_avg': q_vals,
         }
 
+    @timer.trace("Memory Train")
     def _train_from_memory(self, segment: int) -> None:
-        memory_steps_list = self._memories[segment].get()
+        memory_steps_list = []
+        for run_memories in self._memories:
+            memory_steps_list.extend(run_memories[segment].get())
+
+        features = []
+        for memory_list in memory_steps_list:
+            for memory in memory_list:
+                if memory.features:
+                    features.append(memory.features)
+
+        if not features:
+            return
+
+        main_q_vals = self._q[segment].get_from_list(features, update_mode=True)
+        other_q_vals = self._q[1 - segment].get_from_list(features, update_mode=True)
 
         for memory_list in memory_steps_list:
             update_steps = []
 
             for memory in memory_list:
 
-                if memory.observation:
-                    q_vals = self._q[segment].get(memory.observation, update_mode=True)
-                    other_q_vals = self._q[1 - segment].get(memory.observation, update_mode=True)
+                if memory.features:
+                    main_q_val = main_q_vals.pop(0)
+                    other_q_val = other_q_vals.pop(0)
 
                     step = UpdateStep(
-                        features=index_observation(memory.observation.features,
+                        features=index_observation(memory.features,
                                                    memory.action_took),
                         value=self._value_calculator.double(
-                            action_values=q_vals,
+                            action_values=main_q_val,
                             action_took=memory.action_took,
-                            action_probs=self._explorer.get_probabilities(q_vals),
-                            reference_values=other_q_vals
+                            action_probs=self._explorer.get_probabilities(main_q_val),
+                            reference_values=other_q_val
                         ),
-                        reward=memory.reward,
-                        phase=memory.observation.phase
+                        reward=memory.reward
                     )
 
                 else:
                     step = UpdateStep(
                         features=None,
                         value=0,
-                        reward=memory.reward,
-                        phase=None
+                        reward=memory.reward
                     )
 
                 update_steps.append(step)
 
             data = self._updater.get_updates(update_steps)
 
-            self._q[segment].update(data)
+            self._q[segment].update(*data)
 
     @property
     def params(self) -> dict:
@@ -189,17 +210,14 @@ class DoubleTrainer(Trainer, Agent):
         self._q[0].load(directory / 'q1')
         self._q[1].load(directory / 'q2')
 
-    def play(self, observation: dict) -> Card:
-        self.train = False
-        card = self.step(observation)
-        self.train = True
-        return card
+    @timer.trace("Adverserial Play")
+    def play(self, observation: dict, actions: List[Any]) -> Card:
+        features = self._feature_generator.state_action(observation, actions)
 
+        q1_vals = self._q[0].get(features)
+        q2_vals = self._q[1].get(features)
+        q_vals = (q1_vals + q2_vals)
 
-def validate_memory(memory):
-    for slot in memory._steps._items:
-        for step in slot:
-            if step.features is None:
-                pass
-            else:
-                assert step.features.features[0].shape[0] > 0
+        idx = np.argmax(q_vals)
+
+        return actions[idx]

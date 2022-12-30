@@ -22,36 +22,34 @@ class Environment:
 
         self._play_for_rivals()
 
-        observation = self._game.observe(player=0)
+        observation, actions = self._game.observe(player=0)
         self._reward.reset(observation)
 
-        return observation
+        return observation, actions
 
     def step(self, action):
         self._game.play(action)
 
         self._play_for_rivals()
 
-        observation = self._game.observe(player=0)
+        observation, actions = self._game.observe(player=0)
 
-        reward = 0
-        if self._game.phase == GamePhase.PLAY:
-            reward = self._reward.step(observation)
+        reward = self._reward.step(observation)
 
-        return observation, reward, self._game.end
+        return observation, actions, reward, self._game.end
 
     def _play_for_rivals(self):
         while self._game.phasing_player != 0 and not self._game.end:
-            observation = self._game.observe()
+            observation, actions = self._game.observe()
 
-            action = self._rival.play(observation)
+            action = self._rival.play(observation, actions)
             self._game.play(action)
 
 
 def finish_game(tracked_game, players):
     while not tracked_game.end:
-        observation = tracked_game.observe()
-        action = players[tracked_game.phasing_player].play(observation)
+        observation, actions = tracked_game.observe()
+        action = players[tracked_game.phasing_player].play(observation, actions)
         tracked_game.play(action)
 
     return tracked_game
@@ -111,31 +109,36 @@ class Tester:
             return avg_points
 
 
-def analyze_game_round(players, initial_player=0):
-    game = PlayPhase(initial_player)
+def analyze_game_round(agent):
+    hands = generate_hands()
+    game = TrackedGameRound(
+        starting_player=np.random.choice(np.arange(PLAYERS)),
+        hands=hands
+    )
+
     while True:
         observation = game.observe()
-        card = players[game.phasing_player].play(observation)
+        obs_dict = observation.features
+        action = agent.step(observation)
+        print('')
+        print("Choice Made", action)
         if game.phasing_player == 0:
-            try:
-                print(list(game.tracker.history.history[-1]))
-            except Exception as e:
-                pass
             print('')
-            print('')
-            print("Hand", np.sort(list(game.hands[0])))
-            print("Pot", list(game.pot))
-            print("Choice Made", card)
-            print("Adversary Hands")
-            print(np.sort(list(game.hands[1])))
-            print(np.sort(list(game.hands[2])))
-            print('---')
-            print(game.get_points())
-            idx = np.argsort(observation.eligible_choices)
-            print(players[game.phasing_player].get_embedding_value_pair(observation)[1][idx])
+            for k, v in obs_dict.items():
+                print(k)
+                print(v)
 
-        game.play(card)
+            print('------------------')
+
+            debug_samples = {}#agent.debug(observation)
+            for k, v in debug_samples.items():
+                print(k)
+                print(v)
+
+            print('------------------')
+
+        game.play(action)
 
         if game.end:
-            print(game.get_points())
+            print(game.points)
             break

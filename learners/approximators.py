@@ -10,12 +10,14 @@ from abc import abstractmethod, ABC
 import torch
 from torch import nn
 
-from game.utils import GamePhase, Observation
-from .representation import concatenate_feature_list, TrainTuple
+from game.utils import GamePhase
+from .representation import concatenate_feature_list, slice_features
 from .transformers import Transformer
+from debug.timer import timer
 
 
 class Approximator(ABC):
+
     @abstractmethod
     def get(self, x: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
         pass
@@ -33,8 +35,26 @@ class Approximator(ABC):
     def decay(self) -> None:
         pass
 
+    def get_from_list(self, x: List[List[np.ndarray]],
+                      update_mode: bool = False) -> List[np.ndarray]:
+        lengths = [xx[0].shape[0] for xx in x]
+        joined_x = concatenate_feature_list(x)
+        y = self.get(joined_x, update_mode=update_mode)
+        return np.split(y, np.cumsum(lengths[:-1]))
+
+    def batch_get(self, x: List[np.ndarray], batch_size: int,
+                  update_mode: bool = False) -> np.ndarray:
+        ret = []
+        idx = 0
+        while idx < len(x[0]):
+            ret.append(self.get(slice_features(x, idx, idx + batch_size),
+                                update_mode=update_mode))
+            idx += batch_size
+        return np.concatenate(ret, axis=0)
+
 
 class DataTransformer(ABC):
+
     def transform_input(self, x: List[np.ndarray]) -> List[np.ndarray]:
         return x
 
@@ -43,7 +63,7 @@ class DataTransformer(ABC):
 
     def process_update(self, x: List[np.ndarray], y: np.ndarray
                        ) -> Optional[Tuple[List[np.ndarray], np.ndarray]]:
-        return x, y
+        yield x, y
 
     def save(self, directory: Path) -> None:
         pass
@@ -52,51 +72,42 @@ class DataTransformer(ABC):
         pass
 
 
-class ApproximatorSplitter:
+class TransformedApproximator(Approximator):
 
     def __init__(
             self,
-            approximator_dictionary: Dict[GamePhase, Approximator],
-            transformer_dictionary: Dict[GamePhase, List[DataTransformer]],
+            approximator: Approximator,
+            transformers: Union[List[DataTransformer], DataTransformer],
     ) -> None:
-        self._approximators = approximator_dictionary
-        self._transformers = transformer_dictionary
+        self._approximator = approximator
+        self._transformers = (transformers if isinstance(transformers, list)
+                              else [transformers])
 
-    def get(self, observation: Observation, update_mode: bool = False) -> np.ndarray:
-        phase = observation.phase
-        transformers = self._transformers[phase]
-        approximator = self._approximators[phase]
+    def get(self, features: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
+        for transformer in self._transformers:
+            features = transformer.transform_input(features)
 
-        x = observation.features
+        y = self._approximator.get(features, update_mode=update_mode)
 
-        for transformer in transformers:
-            x = transformer.transform_input(x)
-
-        y = approximator.get(x, update_mode=update_mode)
-
-        for transformer in transformers:
+        for transformer in self._transformers:
             y = transformer.transform_output(y)
 
         return y
 
-    def update(self, data: TrainTuple) -> None:
-        phase = data.phase
-        transformers = self._transformers[phase]
-        approximator = self._approximators[phase]
+    def update(self, x: List[np.ndarray], y: np.ndarray) -> None:
+        y = np.array(y).reshape(-1, 1)
+        self._apply_update(x, y, self._transformers)
 
-        x, y = data.features, data.target
-        y = np.array(y).reshape(1, 1)
-        for transformer in transformers:
-            data = transformer.process_update(x, y)
-            if data is None:
-                return
-            x, y = data
-
-        approximator.update(x, y)
+    def _apply_update(self, x: List[np.ndarray], y: np.ndarray,
+                      transformers: List[DataTransformer]) -> None:
+        for trans_x, trans_y in transformers[0].process_update(x, y):
+            if len(transformers) == 1:
+                self._approximator.update(trans_x, trans_y)
+            else:
+                self._apply_update(trans_x, trans_y, transformers[1:])
 
     def decay(self) -> None:
-        for approximator in self._approximators.values():
-            approximator.decay()
+        self._approximator.decay()
 
 
 class Buffer(DataTransformer):
@@ -113,9 +124,9 @@ class Buffer(DataTransformer):
                        ) -> Optional[Tuple[List[np.ndarray], np.ndarray]]:
         self._staged_features.append(x)
         self._staged_targets.append(y)
-        self._buffer_size += len(x)
+        self._buffer_size += len(y)
 
-        if self._buffer_size >= self._max_buffer_size:
+        while self._buffer_size >= self._max_buffer_size:
             concat_x = concatenate_feature_list(self._staged_features)
             concat_y = np.concatenate(self._staged_targets, axis=0)
 
@@ -127,11 +138,9 @@ class Buffer(DataTransformer):
 
             self._staged_features = [rest_x]
             self._staged_targets = [rest_y]
-            self._buffer_size = len(rest_x)
+            self._buffer_size = len(rest_y)
 
-            return ret_x, ret_y
-        else:
-            return None
+            yield ret_x, ret_y
 
     @property
     def params(self) -> dict:
@@ -148,7 +157,7 @@ class TargetTransformer(DataTransformer):
     def process_update(self, x: List[np.ndarray], y: np.ndarray
                        ) -> Tuple[List[np.ndarray], np.ndarray]:
         y = self._transformer.transform(y)
-        return x, y
+        yield x, y
 
     def transform_output(self, y: np.ndarray) -> np.ndarray:
         return self._transformer.inverse_transform(y)
@@ -186,12 +195,14 @@ class Torch(Approximator):
         else:
             self._scheduler = None
 
+    @timer.trace("Hard Get")
     def get(self, x: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
         self.model.train(False)
         x = [torch.tensor(xx).float().to(self._device) for xx in x]
         pred = self.model(*x).to("cpu").detach().numpy()
         return pred.flatten()
 
+    @timer.trace("Hard Update")
     def update(self, x: List[np.ndarray], y: np.ndarray) -> None:
         self.model.train(True)
         x = [torch.tensor(xx).float().to(self._device) for xx in x]
@@ -237,12 +248,14 @@ class SoftUpdateTorch(Approximator):
                                        self._model.model.parameters()):
             target_param.data.copy_(param.data)
 
+    @timer.trace("Soft Get")
     def get(self, x: List[np.ndarray], update_mode: bool = False) -> np.ndarray:
         if update_mode:
             return self._model.get(x)
         else:
             return self._final_model.get(x)
 
+    @timer.trace("Soft Update")
     def update(self, x: List[np.ndarray], y: np.ndarray) -> None:
         self._model.update(x, y)
 

@@ -100,33 +100,33 @@ class BlockDenseSkipConnections(nn.Module):
 
 
 class MainNetwork(nn.Module):
-    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+    def __init__(self, channels, dense_sizes, depth, dropout_p=0.1, leak=0.01):
         super().__init__()
 
         self.conv_broad = BlockConvResLayer(
-            depth=depth, channel_size=80, kernel_width=(1, 3),
+            depth=depth, channel_size=channels, kernel_width=(1, 3),
             padding='same', dropout_p=dropout_p, leak=leak
         )
 
-        conv_bridge = BlockConvResLayer(
-            depth=depth, channel_size=160, kernel_width=(1, 5),
-            padding='valid', dropout_p=dropout_p, leak=leak
-        )
-
-        colour_conv = ResLayer(
-            channel_size=160, kernel_width=(1, 1), padding='same',
-            dropout_p=dropout_p, leak=leak, activate=False
+        conv_bridge = nn.Sequential(
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 4), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak),
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 4), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak),
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 3), padding='valid'),
+            nn.Dropout2d(dropout_p),
         )
 
         self.bridge = SkipConnection(
-            main_layer=nn.Sequential(conv_bridge, colour_conv),
-            downsample=nn.LazyConv2d(out_channels=160, kernel_size=(1, 9), padding='valid'),
+            main_layer=conv_bridge,
+            downsample=nn.LazyConv2d(out_channels=channels, kernel_size=(1, 9),
+                                     padding='valid'),
             activation=nn.LeakyReLU(leak)
-        )
-
-        self.conv_tight = BlockConvResLayer(
-            depth=depth, channel_size=40, kernel_width=(1, 1),
-            padding='same', dropout_p=dropout_p, leak=leak
         )
 
         self.dense = BlockDenseSkipConnections(dense_sizes)
@@ -138,57 +138,11 @@ class MainNetwork(nn.Module):
 
         tight = self.bridge(broad)
 
-        flat = torch.flatten(self.conv_tight(tight), start_dim=1)
+        flat = torch.flatten(tight, start_dim=1)
 
         concatenated = torch.cat([flat, rest_encoding], dim=1)
 
         dense = self.dense(concatenated)
-
-        return self.final_dense(dense)
-
-
-class SimpleMainNetwork(nn.Module):
-    def __init__(self, dense_sizes, depth, dropout_p=0.1, leak=0.01):
-        super().__init__()
-
-        self.conv_broad = BlockConvResLayer(
-            depth=depth, channel_size=80, kernel_width=(1, 3),
-            padding='same', dropout_p=dropout_p, leak=leak
-        )
-
-        conv_bridge = BlockConvResLayer(
-            depth=depth, channel_size=160, kernel_width=(1, 5),
-            padding='valid', dropout_p=dropout_p, leak=leak
-        )
-
-        colour_conv = ResLayer(
-            channel_size=160, kernel_width=(1, 1), padding='same',
-            dropout_p=dropout_p, leak=leak, activate=False
-        )
-
-        self.bridge = SkipConnection(
-            main_layer=nn.Sequential(conv_bridge, colour_conv),
-            downsample=nn.LazyConv2d(out_channels=160, kernel_size=(1, 9), padding='valid'),
-            activation=nn.LeakyReLU(leak)
-        )
-
-        self.conv_tight = BlockConvResLayer(
-            depth=depth, channel_size=40, kernel_width=(1, 1),
-            padding='same', dropout_p=dropout_p, leak=leak
-        )
-
-        self.dense = BlockDenseSkipConnections(dense_sizes)
-
-        self.final_dense = nn.LazyLinear(1)
-
-    def forward(self, card_encoding):
-        broad = self.conv_broad(card_encoding)
-
-        tight = self.bridge(broad)
-
-        flat = torch.flatten(self.conv_tight(tight), start_dim=1)
-
-        dense = self.dense(flat)
 
         return self.final_dense(dense)
 
@@ -214,16 +168,16 @@ class SimpleNetwork(nn.Module):
         )
 
         self.final_dense = nn.Sequential(
-            nn.LazyLinear(400),
+            nn.LazyLinear(256),
             nn.Dropout(dropout_p),
             nn.ReLU(),
-            nn.LazyLinear(300),
+            nn.LazyLinear(128),
             nn.Dropout(dropout_p),
             nn.ReLU(),
-            nn.LazyLinear(300),
+            nn.LazyLinear(128),
             nn.Dropout(dropout_p),
             nn.ReLU(),
-            nn.LazyLinear(200),
+            nn.LazyLinear(64),
             nn.Dropout(dropout_p),
             nn.ReLU(),
             nn.LazyLinear(1)

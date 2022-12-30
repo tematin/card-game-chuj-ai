@@ -3,21 +3,17 @@ from typing import Tuple, Optional, List, TypeVar
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 
-from game.utils import Observation, GamePhase
-from learners.representation import TrainTuple
-
 
 @dataclass
 class UpdateStep:
     features: Optional[List[np.ndarray]]
-    phase: Optional[GamePhase]
     value: float
     reward: float
 
 
 class StepUpdater(ABC):
     @abstractmethod
-    def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
+    def get_updates(self, steps: List[UpdateStep]) -> Tuple[List[np.ndarray], float]:
         pass
 
     @property
@@ -31,10 +27,9 @@ class Step(StepUpdater):
     def __init__(self, discount: float):
         self._discount = discount
 
-    def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
-        return TrainTuple(
+    def get_updates(self, steps: List[UpdateStep]) -> Tuple[List[np.ndarray], float]:
+        return (
             steps[0].features,
-            steps[0].phase,
             steps[1].reward + self._discount * steps[1].value
         )
 
@@ -54,10 +49,9 @@ class NStep(StepUpdater):
         self._steps = steps
         self._discounted_array = _discount_array(steps, discount)
 
-    def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
-        return TrainTuple(
+    def get_updates(self, steps: List[UpdateStep]) -> Tuple[List[np.ndarray], float]:
+        return (
             steps[0].features,
-            steps[0].phase,
             (rewards(steps)[1:self._steps + 1] * self._discounted_array).sum()
             + self._discounted_array[-1]
             * steps[self._steps].value
@@ -85,7 +79,7 @@ class TDLambda(StepUpdater):
         self._lambda_weights = _discount_array(cutoff_steps, lmbda) * (1 - lmbda)
         self._lambda_weights[-1] += 1 - self._lambda_weights.sum()
 
-    def get_updates(self, steps: List[UpdateStep]) -> TrainTuple:
+    def get_updates(self, steps: List[UpdateStep]) -> Tuple[List[np.ndarray], float]:
         discounted_rewards = (rewards(steps[1:self._cutoff_steps + 1])
                               * self._discounted_array[:-1])
         discounted_values = (values(steps[1:self._cutoff_steps + 1])
@@ -100,7 +94,7 @@ class TDLambda(StepUpdater):
         calculated_rewards = np.array(calculated_rewards)
         reward = (calculated_rewards * self._lambda_weights).sum()
 
-        return TrainTuple(steps[0].features, steps[0].phase, reward)
+        return steps[0].features, reward
 
     @property
     def length(self) -> int:

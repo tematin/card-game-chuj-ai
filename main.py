@@ -7,105 +7,97 @@ import numpy as np
 
 from baselines.baselines import RandomPlayer, LowPlayer, Agent
 from game.environment import Tester, Environment
-from game.rewards import OrdinaryReward
+from game.rewards import OrdinaryReward, RewardsCombiner, DurchDeclarationPenalty
 from game.utils import GamePhase
 from learners.explorers import EpsilonGreedy, ExplorationCombiner, Random, Softmax, ExplorationSwitcher
 from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
-    get_pot_value, get_pot_size_indicators, FeatureGeneratorSplitter, generate_dataset
+    get_pot_value, get_pot_size_indicators, generate_dataset, get_pot_card, \
+    get_card_by_key, get_possible_cards, get_moved_cards, get_play_phase_action, \
+    get_flat_by_key, get_declaration_phase_action, get_durch_phase_action, \
+    TransformedFeatureGenerator
 from learners.memory import ReplayMemory
 from learners.runner import TrainRun
 from learners.updaters import Step, MaximumValue
-from model.model import MainNetwork, SimpleNetwork, SimpleMainNetwork
+from model.model import MainNetwork, SimpleNetwork
 from learners.trainers import DoubleTrainer
 from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
-    Approximator, ApproximatorSplitter
+    Approximator, TransformedApproximator
 from learners.transformers import MultiDimensionalScaler, SimpleScaler, ListTransformer
+from debug.timer import timer
 
-reward = OrdinaryReward(0.3)
 
-feature_generator_dict = {
-    GamePhase.MOVING: Lambda2DEmbedder(['hand']),
-    GamePhase.DURCH: Lambda2DEmbedder(
-        ['hand',
-         'moved_cards',
-         'received_cards'],
-        [],
-        action_list=[0, 1]
-),
-    GamePhase.DECLARATION: Lambda2DEmbedder(
-        ['hand',
-         'moved_cards',
-         'received_cards'],
-    ),
-    GamePhase.PLAY: Lambda2DEmbedder(
-        [get_highest_pot_card,
-         'hand',
-         'pot',
-         'possible_cards',
-         'received_cards'],
-        [get_pot_value,
-         get_pot_size_indicators,
-         'score',
-         'doubled',
-         'eligible_durch',
-         'declared_durch'],
-    ),
-}
+reward = RewardsCombiner([OrdinaryReward(0.15), DurchDeclarationPenalty(-5)])
+
+
+base_embedder = Lambda2DEmbedder(
+    [get_pot_card(0),
+     get_pot_card(1),
+     get_card_by_key('hand'),
+     get_possible_cards(0),
+     get_possible_cards(1),
+     get_card_by_key('received_cards'),
+     get_moved_cards,
+     get_play_phase_action
+     ],
+    [get_pot_value,
+     get_pot_size_indicators,
+     get_flat_by_key('score'),
+     get_flat_by_key('doubled'),
+     get_flat_by_key('eligible_durch'),
+     get_flat_by_key('declared_durch'),
+     get_durch_phase_action,
+     get_declaration_phase_action
+     ],
+)
+
 
 X, y = generate_dataset(
     env=Environment(
         reward=reward,
         rival=RandomPlayer()
     ),
-    episodes=10000,
+    episodes=4000,
     agent=RandomPlayer(),
-    feature_generator=FeatureGeneratorSplitter(feature_generator_dict)
+    feature_generator=base_embedder
 )
 
+feature_transformer = ListTransformer([
+    MultiDimensionalScaler((0, 2, 3)),
+    MultiDimensionalScaler((0,))]
+)
+feature_transformer.fit(X)
 
-transformers = {
-    GamePhase.MOVING: ListTransformer([MultiDimensionalScaler((0, 2, 3))]),
-    GamePhase.DURCH: ListTransformer([MultiDimensionalScaler((0, 2, 3)), SimpleScaler()]),
-    GamePhase.DECLARATION: ListTransformer([MultiDimensionalScaler((0, 2, 3))]),
-    GamePhase.PLAY: ListTransformer([MultiDimensionalScaler((0, 2, 3)), MultiDimensionalScaler((0,))])
-}
+target_transformer = SimpleScaler()
+target_transformer.fit(y)
 
-transformer_dictionary = {}
-approximators_dictionary = {}
+yy = 10
+while yy > 0.01:
+    model = MainNetwork(channels=15, dense_sizes=[[150, 100], [75, 50]], depth=1).to("cuda")
+    #model = SimpleNetwork().to("cuda")
+    yy = model(*[torch.tensor(x[:100]).float().to("cuda") for x in X]).mean()
+    yy = np.abs(yy.to("cpu").detach().numpy())
 
-models = {
-    GamePhase.DURCH: MainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
-    GamePhase.MOVING: SimpleMainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
-    GamePhase.DECLARATION: SimpleMainNetwork(dense_sizes=[[200, 100], [100, 50]], depth=1),
-    GamePhase.PLAY: MainNetwork(dense_sizes=[[200, 200], [200, 100]], depth=2)
-}
 
-for key in GamePhase:
-    transformers[key].fit(X[key])
 
-    target_transformer = SimpleScaler()
-    target_transformer.fit(y[key])
-
-    transformer = [Buffer(128), TargetTransformer(target_transformer)]
-    transformer_dictionary[key] = transformer
-
-    models[key] = SoftUpdateTorch(
+approximator = TransformedApproximator(
+    approximator=SoftUpdateTorch(
         tau=1e-3,
         torch_model=Torch(
-            model=models[key],
+            model=model,
             loss=nn.HuberLoss(delta=1.5),
             optimizer=torch.optim.Adam,
             optimizer_kwargs={'lr': 1e-4},
-        )
-    )
+        ),
+    ),
+    transformers=[
+        Buffer(128),
+        TargetTransformer(target_transformer)
+    ]
+)
 
-
-feature_generator = FeatureGeneratorSplitter(feature_generator_dict, transformers)
-
-
-approximator = ApproximatorSplitter(
-    approximator_dictionary=models,
-    transformer_dictionary=transformer_dictionary
+feature_generator = TransformedFeatureGenerator(
+    feature_transformer=feature_transformer,
+    feature_generator=base_embedder
 )
 
 
@@ -113,9 +105,9 @@ agent = DoubleTrainer(
     q=approximator,
     memory=ReplayMemory(
         yield_length=2,
-        memory_size=2000,
-        extraction_count=2,
-        ramp_up_size=1000
+        memory_size=20, #7000,
+        extraction_count=30,
+        ramp_up_size=10
     ),
     updater=Step(discount=1),
     value_calculator=MaximumValue(),
@@ -139,30 +131,10 @@ runner = TrainRun(
     ),
     benchmark=LowPlayer(),
     eval_freq=2000,
-#    checkpoint_dir=Path('C:/Python/Repos/chuj/runs/double_q_baseline')
+    #checkpoint_dir=Path('C:/Python/Repos/chuj/runs/small_whole_model')
 )
 
-runner.train(16000)
-
-
-
-took = 42 / 3
-total = 42
-
-took = 21 / 3
-total = 21
-
-
-alpha = 0.33333
-
-given = total - took
-print(given * alpha - took * (1 - alpha))
-
-
-
-
-
-
-
-
-
+runner.train(50)
+timer.clear()
+runner.train(100)
+#runner.train(20000)

@@ -1,16 +1,16 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Any, Optional, Tuple, Union, TypeVar
+from typing import List, Any, Optional, Tuple, Union, TypeVar, Dict
 import numpy as np
 
-from game.utils import Observation
+from debug.timer import timer
 
 T = TypeVar('T')
 
 
 @dataclass
 class MemoryStep:
-    observation: Optional[Observation]
+    features: Optional[List[np.ndarray]]
     action_took: Optional[int]
     reward: float
 
