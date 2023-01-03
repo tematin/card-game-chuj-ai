@@ -4,10 +4,14 @@ from typing import List
 import torch
 from torch import nn
 import numpy as np
+from torch.optim.lr_scheduler import StepLR, ExponentialLR
 
+from baselines.agents import first_baseline
 from baselines.baselines import RandomPlayer, LowPlayer, Agent
-from game.environment import Tester, Environment
-from game.rewards import OrdinaryReward, RewardsCombiner, DurchDeclarationPenalty
+from game.environment import Tester, Environment, OneThreadEnvironment, \
+    analyze_game_round, RewardTester
+from game.rewards import OrdinaryReward, RewardsCombiner, DurchDeclarationPenalty, \
+    DeclaredDurchRewards, DurchReward
 from game.utils import GamePhase
 from learners.explorers import EpsilonGreedy, ExplorationCombiner, Random, Softmax, ExplorationSwitcher
 from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
@@ -26,7 +30,19 @@ from learners.transformers import MultiDimensionalScaler, SimpleScaler, ListTran
 from debug.timer import timer
 
 
-reward = RewardsCombiner([OrdinaryReward(0.15), DurchDeclarationPenalty(-5)])
+reward = RewardsCombiner([
+    OrdinaryReward(0.3),
+    DurchDeclarationPenalty(-3),
+    DeclaredDurchRewards(
+            success_reward=5,
+            failure_reward=-12,
+            rival_failure_reward=6.3,
+            rival_success_reward=-14.7
+        ),
+    DurchReward(reward=20, rival_reward=-13)
+])
+
+run_count = 10
 
 
 base_embedder = Lambda2DEmbedder(
@@ -52,11 +68,11 @@ base_embedder = Lambda2DEmbedder(
 
 
 X, y = generate_dataset(
-    env=Environment(
+    env=OneThreadEnvironment(
         reward=reward,
-        rival=RandomPlayer()
+        rival=RandomPlayer(),
     ),
-    episodes=4000,
+    episodes=10000,
     agent=RandomPlayer(),
     feature_generator=base_embedder
 )
@@ -70,13 +86,9 @@ feature_transformer.fit(X)
 target_transformer = SimpleScaler()
 target_transformer.fit(y)
 
-yy = 10
-while yy > 0.01:
-    model = MainNetwork(channels=15, dense_sizes=[[150, 100], [75, 50]], depth=1).to("cuda")
-    #model = SimpleNetwork().to("cuda")
-    yy = model(*[torch.tensor(x[:100]).float().to("cuda") for x in X]).mean()
-    yy = np.abs(yy.to("cpu").detach().numpy())
-
+#model = MainNetwork(channels=45, dense_sizes=[[256, 256], [64, 32]], depth=1).to("cuda")
+model = MainNetwork(channels=60, dense_sizes=[[256, 256], [128, 128], [64, 32]], depth=2).to("cuda")
+model(*[torch.tensor(x[:100]).float().to("cuda") for x in X]).mean()
 
 
 approximator = TransformedApproximator(
@@ -86,7 +98,9 @@ approximator = TransformedApproximator(
             model=model,
             loss=nn.HuberLoss(delta=1.5),
             optimizer=torch.optim.Adam,
-            optimizer_kwargs={'lr': 1e-4},
+            optimizer_kwargs={'lr': 6e-4},
+            scheduler=StepLR,
+            scheduler_kwargs={'step_size': 100, 'gamma': 0.996}
         ),
     ),
     transformers=[
@@ -105,9 +119,9 @@ agent = DoubleTrainer(
     q=approximator,
     memory=ReplayMemory(
         yield_length=2,
-        memory_size=20, #7000,
-        extraction_count=30,
-        ramp_up_size=10
+        memory_size=400,
+        extraction_count=40,
+        ramp_up_size=300
     ),
     updater=Step(discount=1),
     value_calculator=MaximumValue(),
@@ -119,22 +133,24 @@ agent = DoubleTrainer(
             Softmax(0.03)
         ]
     ),
+    run_count=run_count
 )
-
 
 runner = TrainRun(
     agent=agent,
-    tester=Tester(100),
+    testers={
+        'low_player': Tester(80, LowPlayer()),
+        'reward_low': RewardTester(reward, LowPlayer(), run_count=10, episodes=600),
+        'reward_agent': RewardTester(reward, first_baseline(), run_count=10, episodes=600),
+    },
     environment=Environment(
         reward=reward,
-        rival=agent
+        rival=agent,
+        run_count=run_count
     ),
-    benchmark=LowPlayer(),
-    eval_freq=2000,
-    #checkpoint_dir=Path('C:/Python/Repos/chuj/runs/small_whole_model')
+    eval_freq=10000,
+    run_count=run_count,
+    checkpoint_dir=Path('runs/baseline_run_2').absolute()
 )
 
-runner.train(50)
-timer.clear()
-runner.train(100)
-#runner.train(20000)
+runner.train(30000)

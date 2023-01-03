@@ -4,7 +4,7 @@ from typing import Union, List
 
 import numpy as np
 
-from .constants import VALUES, COLOURS, CARDS_PER_PLAYER, PLAYERS
+from game.constants import VALUES, COLOURS, CARDS_PER_PLAYER, PLAYERS
 
 
 def advance_player(player, moves=1):

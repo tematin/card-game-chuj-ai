@@ -27,7 +27,7 @@ class Trainer(ABC):
 
     @abstractmethod
     def step(self, observations: List[dict], action_list: List[List[Any]],
-             reward: List[Optional[float]]) -> List[Any]:
+             reward: List[Optional[float]], idx: List[int]) -> List[Any]:
         pass
 
     def save(self, directory: Path) -> None:
@@ -35,9 +35,6 @@ class Trainer(ABC):
 
     def load(self, directory: Path) -> None:
         pass
-
-    def debug(self, observation: dict, actions: List[Any]) -> dict:
-        return {}
 
 
 def fill_memory(memory: Memory, reward: float):
@@ -64,67 +61,16 @@ def fill_update_steps(update_steps: Memory, reward: float):
         )
 
 
-class DoubleTrainer(Trainer, Agent):
-
-    def __init__(self, q: Approximator,
-                 updater: StepUpdater,
-                 value_calculator: ValueCalculator,
-                 feature_generator: FeatureGenerator,
-                 explorer: Explorer,
-                 memory: Memory,
-                 run_count: int) -> None:
-        self._q = [q, deepcopy(q)]
-        self._updater = updater
-        self._memories = [[deepcopy(memory) for _ in range(2)]
-                          for _ in range(run_count)]
-        self._run_count = run_count
+class TrainedDoubleQ(Agent):
+    def __init__(self, approximator: Approximator,
+                 feature_generator: FeatureGenerator) -> None:
+        self._q = [approximator, deepcopy(approximator)]
         self._feature_generator = feature_generator
-        self._explorer = explorer
-        self._value_calculator = value_calculator
-        self._episodes = 0
 
-    def reset(self, reward: float, run_id: int) -> None:
-        for i in range(2):
-            fill_memory(self._memories[run_id][i], reward)
-            self._memories[run_id][i].reset_episode()
-            self._q[i].decay()
-            self._train_from_memory(i)
-
-        self._explorer.decay()
-        self._episodes += 1
-
-    @timer.trace("Trainer Step")
-    def step(self, observations: List[dict], action_list: List[List[Any]],
-             reward: List[Optional[float]]) -> List[Any]:
-
-        features = [self._feature_generator.state_action(observation, actions)
-                    for observation, actions in zip(observations, action_list)]
-
-        q1_vals = self._q[0].get_from_list(features)
-        q2_vals = self._q[1].get_from_list(features)
-
-        actions_to_play = []
-        for run_id in range(self._run_count):
-            q_vals = (q1_vals[run_id] + q2_vals[run_id]) / 2
-
-            probs = self._explorer.get_probabilities(q_vals)
-
-            idx = np.random.choice(np.arange(len(probs)), p=probs)
-
-            rand_bool = bool(np.random.randint(2))
-
-            memory_step = MemoryStep(
-                features=features[run_id],
-                action_took=idx,
-                reward=reward[run_id]
-            )
-
-            self._memories[run_id][0].set(memory_step, skip=rand_bool)
-            self._memories[run_id][1].set(memory_step, skip=not rand_bool)
-
-            actions_to_play.append(action_list[run_id][idx])
-
-        return actions_to_play
+    def load(self, directory: Path) -> None:
+        self._q[0].load(directory / 'q1')
+        self._q[1].load(directory / 'q2')
+        self._feature_generator.load(directory / 'feature_generator')
 
     def debug(self, observation: dict, actions: List[Any]) -> dict:
         features = self._feature_generator.state_action(observation, actions)
@@ -138,6 +84,100 @@ class DoubleTrainer(Trainer, Agent):
             'q2_vals': q2_vals,
             'q_avg': q_vals,
         }
+
+    def play(self, observation: dict, actions: List[Any]) -> Any:
+        features = self._feature_generator.state_action(observation, actions)
+
+        q1_vals = self._q[0].get(features)
+        q2_vals = self._q[1].get(features)
+        q_vals = (q1_vals + q2_vals)
+
+        idx = np.argmax(q_vals)
+
+        return actions[idx]
+
+    def parallel_play(self, observations: List[dict],
+                      action_list: List[List[Any]]) -> List[Any]:
+        assert len(observations) == len(action_list)
+        features = [self._feature_generator.state_action(observation, actions)
+                    for observation, actions in zip(observations, action_list)]
+
+        q1_vals = self._q[0].get_from_list(features)
+        q2_vals = self._q[1].get_from_list(features)
+
+        actions_to_play = []
+        for run_id in range(len(observations)):
+            q_vals = (q1_vals[run_id] + q2_vals[run_id]) / 2
+
+            idx = np.argmax(q_vals)
+
+            actions_to_play.append(action_list[run_id][idx])
+
+        return actions_to_play
+
+
+class DoubleTrainer(Trainer, TrainedDoubleQ):
+
+    def __init__(self, q: Approximator,
+                 updater: StepUpdater,
+                 value_calculator: ValueCalculator,
+                 feature_generator: FeatureGenerator,
+                 explorer: Explorer,
+                 memory: Memory,
+                 run_count: int) -> None:
+
+        super().__init__(approximator=q, feature_generator=feature_generator)
+
+        self._updater = updater
+        self._memories = [[deepcopy(memory) for _ in range(2)]
+                          for _ in range(run_count)]
+        self._run_count = run_count
+        self._explorer = explorer
+        self._value_calculator = value_calculator
+        self._episodes = 0
+
+    def reset(self, reward: float, run_id: int) -> None:
+        for i in range(2):
+            fill_memory(self._memories[run_id][i], reward)
+            self._memories[run_id][i].reset_episode()
+            self._q[i].decay()
+            if run_id == 0:
+                self._train_from_memory(i)
+
+        self._explorer.decay()
+        self._episodes += 1
+
+    @timer.trace("Trainer Step")
+    def step(self, observations: List[dict], action_list: List[List[Any]],
+             reward: List[Optional[float]], run_ids: List[int]) -> List[Any]:
+        features = [self._feature_generator.state_action(observation, actions)
+                    for observation, actions in zip(observations, action_list)]
+
+        q1_vals = self._q[0].get_from_list(features)
+        q2_vals = self._q[1].get_from_list(features)
+
+        actions_to_play = []
+        for i, run_id in enumerate(run_ids):
+            q_vals = (q1_vals[i] + q2_vals[i]) / 2
+
+            probs = self._explorer.get_probabilities(q_vals)
+
+            idx = np.random.choice(np.arange(len(probs)), p=probs)
+
+            rand_bool = bool(np.random.randint(2))
+
+            memory_step = MemoryStep(
+                features=features[i],
+                action_took=idx,
+                reward=reward[i]
+            )
+
+            self._memories[run_id][0].set(memory_step, skip=rand_bool)
+            self._memories[run_id][1].set(memory_step, skip=not rand_bool)
+
+            actions_to_play.append(action_list[i][idx])
+
+        return actions_to_play
 
     @timer.trace("Memory Train")
     def _train_from_memory(self, segment: int) -> None:
@@ -194,7 +234,7 @@ class DoubleTrainer(Trainer, Agent):
     @property
     def params(self) -> dict:
         return {
-            'q': self._q[0],
+            'q1': self._q[0],
             'updater': self._updater,
             'memories': self._memories[0],
             'feature_generator': self._feature_generator,
@@ -203,21 +243,7 @@ class DoubleTrainer(Trainer, Agent):
         }
 
     def save(self, directory: Path) -> None:
+        directory.mkdir(exist_ok=True)
         self._q[0].save(directory / 'q1')
         self._q[1].save(directory / 'q2')
-
-    def load(self, directory: Path) -> None:
-        self._q[0].load(directory / 'q1')
-        self._q[1].load(directory / 'q2')
-
-    @timer.trace("Adverserial Play")
-    def play(self, observation: dict, actions: List[Any]) -> Card:
-        features = self._feature_generator.state_action(observation, actions)
-
-        q1_vals = self._q[0].get(features)
-        q2_vals = self._q[1].get(features)
-        q_vals = (q1_vals + q2_vals)
-
-        idx = np.argmax(q_vals)
-
-        return actions[idx]
+        self._feature_generator.save(directory / 'feature_generator')

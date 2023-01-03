@@ -109,6 +109,17 @@ class TransformedApproximator(Approximator):
     def decay(self) -> None:
         self._approximator.decay()
 
+    def save(self, path: Path) -> None:
+        path.mkdir(exist_ok=True)
+        self._approximator.save(path / 'approximator')
+        for i, transformer in enumerate(self._transformers):
+            transformer.save(path / f'transformer_{i}')
+
+    def load(self, path: Path) -> None:
+        self._approximator.load(path / 'approximator')
+        for i, transformer in enumerate(self._transformers):
+            transformer.load(path / f'transformer_{i}')
+
 
 class Buffer(DataTransformer):
 

@@ -4,3 +4,4 @@
 models/
 __pycache__/
 runs/
+baselines/first_baseline

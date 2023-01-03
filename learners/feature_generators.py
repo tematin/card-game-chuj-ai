@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from typing import List, Tuple, Callable, Union, Optional, Any, Dict
 from abc import abstractmethod
 
 from baselines.baselines import Agent
-from game.environment import Environment
+from game.environment import Environment, OneThreadEnvironment
 
 from game.utils import Card, get_deck, GamePhase
 from game.constants import VALUES, COLOURS, CARD_COUNT
@@ -19,6 +21,12 @@ class FeatureGenerator:
     def state_action(self, observations: Dict, actions: List[Any]) -> List[np.ndarray]:
         pass
 
+    def save(self, directory: Path) -> None:
+        pass
+
+    def load(self, directory: Path) -> None:
+        pass
+
 
 class TransformedFeatureGenerator(FeatureGenerator):
 
@@ -30,6 +38,15 @@ class TransformedFeatureGenerator(FeatureGenerator):
     def state_action(self, features: Dict, actions: List[Any]) -> List[np.ndarray]:
         features = self._feature_generator.state_action(features, actions)
         return self._feature_transformer.transform(features)
+
+    def save(self, directory: Path) -> None:
+        directory.mkdir(exist_ok=True)
+        self._feature_generator.save(directory / 'feature_generator')
+        self._feature_transformer.save(directory / 'feature_transformer')
+
+    def load(self, directory: Path) -> None:
+        self._feature_generator.load(directory / 'feature_generator')
+        self._feature_transformer.load(directory / 'feature_transformer')
 
 
 class Lambda2DEmbedder(FeatureGenerator):
@@ -176,7 +193,7 @@ def get_declaration_phase_action(observation, actions):
 
 
 def generate_dataset(
-        env: Environment,
+        env: OneThreadEnvironment,
         agent: Agent,
         episodes: int,
         feature_generator: FeatureGenerator
@@ -186,9 +203,8 @@ def generate_dataset(
 
     for _ in range(episodes):
         episode_rewards = []
-        observation, actions = env.reset()
+        observation, actions, _, done = env.reset()
 
-        done = False
         while not done:
             action = agent.play(observation, actions)
             idx = actions.index(action)

@@ -14,8 +14,10 @@ class Agent(ABC):
 
     def parallel_play(self, observations: List[dict],
                       action_list: List[List[Any]]) -> List[Any]:
+        actions_to_play = []
         for observation, actions in zip(observations, action_list):
-            
+            actions_to_play.append(self.play(observation, actions))
+        return actions_to_play
 
 
 class RandomPlayer(Agent):

@@ -46,6 +46,7 @@ class MultiDimensionalScaler(Transformer):
         }
 
     def save(self, path: Path) -> None:
+        path.mkdir(exist_ok=True)
         np.savez(path / 'scaler.npz', mean=self._mean, std=self._std)
 
     def load(self, path: Path) -> None:
@@ -73,6 +74,7 @@ class SimpleScaler(Transformer):
         }
 
     def save(self, path: Path) -> None:
+        path.mkdir(exist_ok=True)
         np.savez(path / 'scaler.npz', mean=self._mean, std=self._std)
 
     def load(self, path: Path) -> None:
@@ -102,6 +104,7 @@ class ListTransformer:
         return ret
 
     def save(self, path: Path) -> None:
+        path.mkdir(exist_ok=True)
         for i, transformer in enumerate(self._transformers):
             transformer.save(path / str(i))
 

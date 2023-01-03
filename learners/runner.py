@@ -1,7 +1,10 @@
 import json
-from typing import Optional, Any
+from copy import deepcopy
+from typing import Optional, Any, List, Dict
 from pathlib import Path
 import shutil
+
+import numpy as np
 
 from baselines.baselines import Agent
 from game.environment import Tester, Environment
@@ -13,86 +16,84 @@ class TrainRun:
     _average_length = 100
 
     def __init__(self, agent: Trainer,
-                 tester: Tester,
+                 testers: Dict[str, Tester],
                  environment: Environment,
                  eval_freq: int = 1000,
+                 run_count: int = 1,
                  checkpoint_dir: Optional[Path] = None,
-                 benchmark: Optional[Agent] = None,
                  tracker: Any = None) -> None:
-        self._env = environment
         self._agent = agent
-        self._tester = tester
+        self._testers = testers
         self._eval_freq = eval_freq
-        self._benchmark = benchmark
         self._tracker = tracker
+        self._run_count = run_count
+
+        self._env = environment
+        self._env.reset()
 
         self._checkpoint_dir = checkpoint_dir
         if self._checkpoint_dir is not None:
             self._checkpoint_dir.mkdir(exist_ok=True)
-            shutil.copy(Path('C:/Python/Repos/chuj/main.py'), self._checkpoint_dir)
+            shutil.copy(Path('C:/Python/Repos/card-game-chuj-ai/main.py'), self._checkpoint_dir)
 
-        self._rewards = []
         self._score = []
         self._score_idx = []
         self._trained_episodes = 0
-        self._recent_average_reward = 0
 
-    @timer.trace("Whole Episode")
-    def _train_episode(self) -> float:
-        total_rewards = 0
+    def _train_episode(self) -> None:
+        observations, actions, rewards, done, idx = self._env.reset()
+        last_rewards = [0] * len(rewards)
 
-        self._agent.train = True
-        observation, actions = self._env.reset()
+        while not all(done):
+            actions_to_play = self._agent.step(observations, actions, rewards, idx)
+            observations, actions, rewards, done, idx = self._env.step(actions_to_play)
 
-        done = False
-        reward = 0
+            for reward, d, i in zip(rewards, done, idx):
+                if d:
+                    self._agent.reset(reward, i)
 
-        while not done:
-            card = self._agent.step(observation, actions, reward=reward)
-            observation, actions, reward, done = self._env.step(card)
-            total_rewards += reward
+            observations = self._remove_done(observations, done)
+            actions = self._remove_done(actions, done)
+            rewards = self._remove_done(rewards, done)
+            idx = self._remove_done(idx, done)
 
-        self._agent.reset(reward)
+        self._trained_episodes += len(last_rewards)
 
-        self._trained_episodes += 1
-
-        return total_rewards
+    def _remove_done(self, x: List, mask: List[bool]) -> List:
+        return [item for item, m in zip(x, mask) if not m]
 
     @property
     def trained_episodes(self) -> int:
         return self._trained_episodes
 
+    @timer.trace("Total")
     def train(self, episode_count: int) -> None:
         for i in range(episode_count):
-            reward = self._train_episode()
+            self._train_episode()
 
             if self._tracker is not None:
                 self._tracker.register()
 
-            self._recent_average_reward += reward
-            self._rewards.append(reward)
-            if len(self._rewards) > self._average_length:
-                self._recent_average_reward -= self._rewards[-self._average_length]
+            print(f"\r{str(i + 1).rjust(len(str(episode_count)))} / {episode_count}. ",
+                  end="")
 
-            if i % 10 == 0:
-                print(f"\r{str(i).rjust(len(str(episode_count)))} / {episode_count}. "
-                      f"Reward: {self._recent_average_reward / self._average_length}",
-                      end="")
-
-            if (self._trained_episodes % self._eval_freq == 0
-                    and self._benchmark is not None):
+            if self._trained_episodes % self._eval_freq == 0:
                 print(f"\nAfter episodes: {self._trained_episodes}")
-                self._agent.train = False
-
-                score = self._tester.evaluate(self._agent,
-                                              adversary=self._benchmark,
-                                              verbose=1)
+                score = self._evaluate()
                 self._score_idx.append(self._trained_episodes)
                 self._score.append(score)
 
                 if self._checkpoint_dir is not None:
                     self._save_model()
                     self._save_agent_json()
+
+    def _evaluate(self) -> Dict[str, float]:
+        ret = {}
+        for key, tester in self._testers.items():
+            print('')
+            print(key)
+            ret[key] = tester.evaluate(self._agent, verbose=1)
+        return ret
 
     def _save_agent_json(self) -> None:
         agent_params = extract_params(self._agent)
@@ -110,7 +111,6 @@ class TrainRun:
         performance = {
             'score': self._score,
             'score_idx': self._score_idx,
-            'rewards': self._rewards
         }
 
         with open(checkpoint_path / 'performance.json', 'w') as f:
