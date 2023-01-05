@@ -147,6 +147,58 @@ class MainNetwork(nn.Module):
         return self.final_dense(dense)
 
 
+class MainNetworkV2(nn.Module):
+    def __init__(self, channels, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+        super().__init__()
+
+        self.conv_broad = BlockConvResLayer(
+            depth=depth, channel_size=channels, kernel_width=(1, 3),
+            padding='same', dropout_p=dropout_p, leak=leak
+        )
+
+        conv_bridge = nn.Sequential(
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 4), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak),
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 4), padding='valid'),
+            nn.Dropout2d(dropout_p),
+            nn.LeakyReLU(leak),
+            nn.LazyConv2d(out_channels=channels,
+                          kernel_size=(1, 3), padding='valid'),
+            nn.Dropout2d(dropout_p),
+        )
+
+        self.bridge = SkipConnection(
+            main_layer=conv_bridge,
+            downsample=nn.LazyConv2d(out_channels=channels, kernel_size=(1, 9),
+                                     padding='valid'),
+            activation=nn.LeakyReLU(leak)
+        )
+
+        self.simple_conv = nn.LazyConv2d(out_channels=10, kernel_size=(1, 9),
+                                         padding='valid')
+
+        self.dense = BlockDenseSkipConnections(dense_sizes)
+
+        self.final_dense = nn.LazyLinear(1)
+
+    def forward(self, card_encoding, rest_encoding):
+        broad = self.conv_broad(card_encoding)
+        tight = self.bridge(broad)
+        flat = torch.flatten(tight, start_dim=1)
+
+        simple = self.simple_conv(card_encoding)
+        simple = torch.flatten(simple, start_dim=1)
+
+        concatenated = torch.cat([flat, rest_encoding, simple], dim=1)
+
+        dense = self.dense(concatenated)
+
+        return self.final_dense(dense)
+
+
 class SimpleNetwork(nn.Module):
     def __init__(self, base_conv_filters=30, conv_filters=30, dropout_p=0.2):
         super().__init__()
@@ -190,5 +242,3 @@ class SimpleNetwork(nn.Module):
 
         flat = torch.cat([by_colour, by_value, rest_encoding], dim=1)
         return self.final_dense(flat)
-
-

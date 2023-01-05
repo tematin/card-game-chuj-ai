@@ -9,7 +9,7 @@ from baselines.baselines import Agent
 from game.constants import PLAYERS
 from game.game import PlayPhase, TrackedGameRound
 from game.rewards import Reward
-from game.utils import generate_hands, GamePhase
+from game.utils import generate_hands, GamePhase, Card
 
 
 class Environment:
@@ -22,6 +22,7 @@ class Environment:
         self._games = []
         for run_id in range(self._run_count):
             hands = generate_hands()
+
             self._games.append(TrackedGameRound(
                 starting_player=np.random.choice(np.arange(PLAYERS)),
                 hands=hands,
@@ -62,7 +63,6 @@ class Environment:
 
         ends = [g.end for g in active_games]
 
-        self._finished[active_idx[ends]] = True
         self._finished[active_idx[ends]] = True
 
         return observations, actions_list, rewards, ends, active_idx
@@ -251,8 +251,12 @@ class RewardTester:
         return reward_per_episode
 
 
-def analyze_game_round(agent):
-    hands = generate_hands()
+def analyze_game_round(agent, hands=None):
+    if hands is None:
+        hands = generate_hands()
+    else:
+        hands = deepcopy(hands)
+
     game = TrackedGameRound(
         starting_player=np.random.choice(np.arange(PLAYERS)),
         hands=hands

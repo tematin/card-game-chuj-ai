@@ -10,7 +10,7 @@ from baselines.baselines import Agent
 from game.environment import Environment, OneThreadEnvironment
 
 from game.utils import Card, get_deck, GamePhase
-from game.constants import VALUES, COLOURS, CARD_COUNT
+from game.constants import VALUES, COLOURS, CARD_COUNT, CARDS_PER_PLAYER
 from learners.representation import index_features, concatenate_feature_list
 from learners.transformers import Transformer, ListTransformer, DummyListTransformer
 from debug.timer import timer
@@ -105,6 +105,12 @@ def encode_card_2d(cards):
         if card is None:
             continue
         ret[card.colour, card.value] += 1
+    return ret
+
+
+def get_cards_remaining(observation, actions):
+    ret = np.zeros(CARDS_PER_PLAYER - 1)
+    ret[:(len(observation['hand']) - 1)] = 1
     return ret
 
 

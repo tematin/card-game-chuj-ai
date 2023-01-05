@@ -82,7 +82,7 @@ class RemainingPossibleCardsTracker(Tracker):
         for i in range(PLAYERS):
             if i == player:
                 continue
-            j = (i - player) % PLAYERS - 1
+            j = (player - i) % PLAYERS - 1
             self._possible_cards[i][j] = [c for c in self._possible_cards[i][j]
                                           if c.colour != pot_colour]
 
@@ -102,7 +102,7 @@ class RemainingPossibleCardsTracker(Tracker):
             if i == player:
                 continue
             for j in range(PLAYERS - 1):
-                if (i + j) % PLAYERS == player:
+                if (i + j + 1) % PLAYERS == player:
                     continue
                 for card in cards:
                     if card in self._possible_cards[i][j]:
@@ -125,7 +125,7 @@ class ScoreTracker(Tracker):
 
     def get_observations(self, player):
         return {
-            'score': [self._score[(player + j) % PLAYERS] for j in range(PLAYERS)]
+            'score': _offset_array(self._score, player)
         }
 
 
@@ -146,7 +146,8 @@ class DurchEligibilityTracker(Tracker):
             ret = [True for _ in range(PLAYERS)]
         elif sum(self._took_card) == 1:
             ret = [False for _ in range(PLAYERS)]
-            ret[(player + np.argmax(self._took_card)) % PLAYERS] = True
+            ret[np.argmax(self._took_card)] = True
+            ret = _offset_array(ret, player)
         else:
             ret = [False for _ in range(PLAYERS)]
 
@@ -202,5 +203,8 @@ class DurchDeclarationTracker(Tracker):
             self._declared[game.phasing_player] = 1
 
     def get_observations(self, player):
-        return {'declared_durch': [self._declared[(player + j) % PLAYERS]
-                                   for j in range(PLAYERS)]}
+        return {'declared_durch': _offset_array(self._declared, player)}
+
+
+def _offset_array(x, player):
+    return [x[(player + j) % PLAYERS] for j in range(PLAYERS)]

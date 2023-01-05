@@ -299,7 +299,7 @@ class DurchPhase:
         else:
             return PlayPhase(
                 hands=self._hands,
-                starting_player=self._starting_player,
+                starting_player=self._declared_durch,
                 declared_durch=self._declared_durch
             )
 

@@ -224,7 +224,6 @@ class DoubleTrainer(Trainer, TrainedDoubleQ):
                         value=0,
                         reward=memory.reward
                     )
-
                 update_steps.append(step)
 
             data = self._updater.get_updates(update_steps)

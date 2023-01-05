@@ -3,6 +3,7 @@ from typing import List
 
 import numpy as np
 
+from game.constants import DURCH_SCORE, CARDS_PER_PLAYER
 from game.utils import GamePhase
 
 
@@ -30,10 +31,7 @@ class OrdinaryReward(Reward):
         if sum(observation['declared_durch']) != 0:
             return 0
 
-        score = observation['score']
-
-        took = score[0]
-        given = sum(score) - took
+        took, given = self._resolve_score(observation)
 
         delta_took = took - self._total_took
         delta_given = given - self._total_given
@@ -42,6 +40,19 @@ class OrdinaryReward(Reward):
         self._total_given = given
 
         return self.alpha * delta_given - (1 - self.alpha) * delta_took
+
+    def _resolve_score(self, observation):
+        score = observation['score']
+        took, gave = score[0], sum(score) - score[0]
+
+        if len(observation['hand']) > 0:
+            return took, gave
+        elif observation['eligible_durch'][0]:
+            return DURCH_SCORE, 0
+        elif sum(observation['eligible_durch']) > 0:
+            return 0, DURCH_SCORE
+        else:
+            return took, gave
 
 
 class EndReward(Reward):
@@ -89,18 +100,19 @@ class DurchDeclarationPenalty(Reward):
 class DeclaredDurchRewards(Reward):
     def __init__(self, success_reward: float, failure_reward: float,
                  rival_success_reward: float, rival_failure_reward: float) -> None:
-        self._success_reward = success_reward
+        self._success_reward = success_reward / CARDS_PER_PLAYER
         self._failure_reward = failure_reward
-        self._rival_success_reward = rival_success_reward
+        self._rival_success_reward = rival_success_reward / CARDS_PER_PLAYER
         self._rival_failure_reward = rival_failure_reward
 
     def reset(self, observation):
         self._declared = False
-        self._reward_evaled = False
+        self._durch_failed = False
         self._player_declared = None
+        self._per_step_reward = 0
 
     def step(self, observation):
-        if self._reward_evaled:
+        if self._durch_failed:
             return 0
 
         if (not self._declared
@@ -113,20 +125,21 @@ class DeclaredDurchRewards(Reward):
             return 0
 
         if not observation['eligible_durch'][self._player_declared]:
-            self._reward_evaled = True
-            if self._player_declared == 0:
-                return self._failure_reward
-            else:
-                return self._rival_failure_reward
+            self._durch_failed = True
+            ret = -self._per_step_reward
 
-        if len(observation['hand']) == 0:
-            self._reward_evaled = True
             if self._player_declared == 0:
-                return self._success_reward
+                ret += self._failure_reward
             else:
-                return self._rival_success_reward
+                ret += self._rival_failure_reward
+            return ret
 
-        return 0
+        if self._player_declared == 0:
+            self._per_step_reward += self._success_reward
+            return self._success_reward
+        else:
+            self._per_step_reward += self._rival_success_reward
+            return self._rival_success_reward
 
 
 class DurchReward(Reward):
