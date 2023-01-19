@@ -21,6 +21,10 @@ class FeatureGenerator:
     def state_action(self, observations: Dict, actions: List[Any]) -> List[np.ndarray]:
         pass
 
+    @abstractmethod
+    def state(self, observations: Dict) -> List[np.ndarray]:
+        pass
+
     def save(self, directory: Path) -> None:
         pass
 
@@ -35,8 +39,12 @@ class TransformedFeatureGenerator(FeatureGenerator):
         self._feature_generator = feature_generator
         self._feature_transformer = feature_transformer
 
-    def state_action(self, features: Dict, actions: List[Any]) -> List[np.ndarray]:
-        features = self._feature_generator.state_action(features, actions)
+    def state_action(self, observations: Dict, actions: List[Any]) -> List[np.ndarray]:
+        observations = self._feature_generator.state_action(observations, actions)
+        return self._feature_transformer.transform(observations)
+
+    def state(self, observations: Dict) -> List[np.ndarray]:
+        features = self._feature_generator.state(observations)
         return self._feature_transformer.transform(features)
 
     def save(self, directory: Path) -> None:
@@ -53,8 +61,8 @@ class Lambda2DEmbedder(FeatureGenerator):
 
     def __init__(
             self,
-            card_extractors: List[Callable[[Dict, List[Any]], np.ndarray]],
-            flat_extractors: List[Callable[[Dict, List[Any]], np.ndarray]]
+            card_extractors: List[Callable[[Dict, Optional[List[Any]]], np.ndarray]],
+            flat_extractors: List[Callable[[Dict, Optional[List[Any]]], np.ndarray]]
     ) -> None:
         self._card_extractors = card_extractors
         self._flat_extractors = flat_extractors
@@ -73,6 +81,19 @@ class Lambda2DEmbedder(FeatureGenerator):
             ret = np.array(f(features, actions))
             if ret.ndim == 1:
                 ret = np.tile(ret, (action_count, 1))
+            other_embeddings.append(ret)
+        other_embeddings = np.concatenate(other_embeddings, axis=1)
+
+        return [card_embedding, other_embeddings]
+
+    def state(self, features: Dict) -> List[np.ndarray]:
+        card_embedding = np.empty((1, *self._card_feature_shape))
+        for i, card_extractor in enumerate(self._card_extractors):
+            card_embedding[:, i] = card_extractor(features, None)
+
+        other_embeddings = []
+        for f in self._flat_extractors:
+            ret = np.array(f(features, None))
             other_embeddings.append(ret)
         other_embeddings = np.concatenate(other_embeddings, axis=1)
 

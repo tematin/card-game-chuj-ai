@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 from copy import deepcopy
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union, Any, Tuple
 from abc import abstractmethod, ABC
 
 from learners.approximators import Approximator
@@ -36,6 +36,10 @@ class Trainer(ABC):
     def load(self, directory: Path) -> None:
         pass
 
+    @abstractmethod
+    def agent(self) -> Agent:
+        pass
+
 
 def fill_memory(memory: Memory, reward: float):
     for i in range(memory.yield_length - 1):
@@ -62,9 +66,9 @@ def fill_update_steps(update_steps: Memory, reward: float):
 
 
 class TrainedDoubleQ(Agent):
-    def __init__(self, approximator: Approximator,
+    def __init__(self, approximators: Tuple[Approximator, Approximator],
                  feature_generator: FeatureGenerator) -> None:
-        self._q = [approximator, deepcopy(approximator)]
+        self._q = approximators
         self._feature_generator = feature_generator
 
     def load(self, directory: Path) -> None:
@@ -124,9 +128,11 @@ class DoubleTrainer(Trainer, TrainedDoubleQ):
                  feature_generator: FeatureGenerator,
                  explorer: Explorer,
                  memory: Memory,
+                 assign_rule: str,
                  run_count: int) -> None:
 
-        super().__init__(approximator=q, feature_generator=feature_generator)
+        super().__init__(approximators=(q, deepcopy(q)),
+                         feature_generator=feature_generator)
 
         self._updater = updater
         self._memories = [[deepcopy(memory) for _ in range(2)]
@@ -134,6 +140,7 @@ class DoubleTrainer(Trainer, TrainedDoubleQ):
         self._run_count = run_count
         self._explorer = explorer
         self._value_calculator = value_calculator
+        self._assign_rule = assign_rule
         self._episodes = 0
 
     def reset(self, reward: float, run_id: int) -> None:
@@ -164,20 +171,31 @@ class DoubleTrainer(Trainer, TrainedDoubleQ):
 
             idx = np.random.choice(np.arange(len(probs)), p=probs)
 
-            rand_bool = bool(np.random.randint(2))
-
             memory_step = MemoryStep(
                 features=features[i],
                 action_took=idx,
                 reward=reward[i]
             )
 
-            self._memories[run_id][0].set(memory_step, skip=rand_bool)
-            self._memories[run_id][1].set(memory_step, skip=not rand_bool)
-
+            self._store_in_memory(memory_step, run_id)
             actions_to_play.append(action_list[i][idx])
 
         return actions_to_play
+
+    def _store_in_memory(self, memory_step: MemoryStep, run_id: int) -> None:
+        if self._assign_rule == 'both':
+            skip = [False, False]
+        elif self._assign_rule == 'random':
+            rand_bool = bool(np.random.randint(2))
+            skip = [rand_bool, not rand_bool]
+        elif self._assign_rule == 'episode_random':
+            rand_bool = bool(self._episodes % 2)
+            skip = [rand_bool, not rand_bool]
+        else:
+            raise ValueError("Wrong assign rule")
+
+        self._memories[run_id][0].set(memory_step, skip=skip[0])
+        self._memories[run_id][1].set(memory_step, skip=skip[1])
 
     @timer.trace("Memory Train")
     def _train_from_memory(self, segment: int) -> None:
@@ -246,3 +264,9 @@ class DoubleTrainer(Trainer, TrainedDoubleQ):
         self._q[0].save(directory / 'q1')
         self._q[1].save(directory / 'q2')
         self._feature_generator.save(directory / 'feature_generator')
+
+    def agent(self) -> Agent:
+        return TrainedDoubleQ(
+            approximators=deepcopy(self._q),
+            feature_generator=deepcopy(self._feature_generator)
+        )

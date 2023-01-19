@@ -186,3 +186,21 @@ class ExpectedValue(ValueCalculator):
     @property
     def params(self) -> dict:
         return {'type': 'expected_value'}
+
+
+class ClippedMaximumValue(ValueCalculator):
+
+    def value(self, action_values: np.ndarray,
+              action_took: int,
+              action_probs: np.ndarray) -> float:
+        return max(action_values)
+
+    def double(self, action_values: np.ndarray,
+               action_took: int,
+               action_probs: np.ndarray,
+               reference_values: np.ndarray) -> float:
+        return np.stack([action_values, reference_values]).min(0).max()
+
+    @property
+    def params(self) -> dict:
+        return {'type': 'clipped_maximum_value'}

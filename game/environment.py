@@ -1,3 +1,4 @@
+import itertools
 from typing import Any, Optional, List, Tuple
 
 import numpy as np
@@ -7,7 +8,7 @@ from tqdm import tqdm
 
 from baselines.baselines import Agent
 from game.constants import PLAYERS
-from game.game import PlayPhase, TrackedGameRound
+from game.game import PlayPhase, TrackedGameRound, Hand
 from game.rewards import Reward
 from game.utils import generate_hands, GamePhase, Card
 
@@ -18,20 +19,23 @@ class Environment:
         self._rival = rival
         self._run_count = run_count
 
-    def _init_new_games(self) -> None:
+    def _init_new_games(self, hands: List[List[Hand]]) -> None:
         self._games = []
         for run_id in range(self._run_count):
-            hands = generate_hands()
+            round_hands = hands[run_id]
 
             self._games.append(TrackedGameRound(
                 starting_player=np.random.choice(np.arange(PLAYERS)),
-                hands=hands,
+                hands=round_hands,
             ))
 
         self._finished = np.full(self._run_count, False)
 
-    def reset(self):
-        self._init_new_games()
+    def reset(self, hands: Optional[List[List[Hand]]] = None):
+        if hands is None:
+            hands = [generate_hands() for _ in range(self._run_count)]
+
+        self._init_new_games(hands)
         self._play_for_rivals()
 
         observations, action_list = self._observe(self._games, player=0)
@@ -149,23 +153,82 @@ def finish_game(tracked_game, players):
     return tracked_game
 
 
+class RewardTester:
+    def __init__(self, reward: Reward, adversary: Agent, run_count: int, episodes: int) -> None:
+        self._reward = reward
+        self._run_count = run_count
+        self._iters = int(episodes / run_count)
+        self._episodes = self._iters * run_count
+        self._adversary = adversary
+        self._hands_list = [generate_hands() for _ in range(episodes)]
+
+    def _remove_done(self, x: List, mask: List[bool]) -> List:
+        return [item for item, m in zip(x, mask) if not m]
+
+    def _run(self, env: Environment, agent: Agent, hands: List[List[Hand]]) -> np.ndarray:
+        total_rewards = np.zeros(self._run_count)
+        observations, actions, _, done, idx = env.reset(hands)
+
+        while not all(done):
+            actions_to_play = agent.parallel_play(observations, actions)
+            observations, actions, rewards, done, idx = env.step(actions_to_play)
+            total_rewards[idx] += rewards
+
+            observations = self._remove_done(observations, done)
+            actions = self._remove_done(actions, done)
+
+        return total_rewards
+
+    def evaluate(self, agent: Agent, verbose: int = 0) -> float:
+        env = Environment(
+            reward=self._reward,
+            rival=self._adversary,
+            run_count=self._run_count
+        )
+
+        total_rewards = []
+        iter_item = range(self._iters)
+        if verbose > 1:
+            iter_item = tqdm(iter_item)
+
+        hands_idx = 0
+
+        for _ in iter_item:
+            hands = self._hands_list[hands_idx:(hands_idx + self._run_count)]
+            hands_idx += self._run_count
+            rewards = self._run(env, agent, deepcopy(hands))
+            total_rewards.append(rewards)
+
+        total_rewards = np.concatenate(total_rewards)
+
+        reward_per_episode = np.mean(total_rewards)
+        exp_scale = np.std(total_rewards) / np.sqrt(len(total_rewards))
+
+        if verbose:
+            print(f"Reward earned: {reward_per_episode:.4f} +- {exp_scale:.4f}")
+
+        return reward_per_episode
+
+
 class Tester:
     def __init__(self, game_count, adversary, return_ratio=False, seed=123456):
         if seed is not None:
             np.random.seed(seed)
-        self.hands_list = [generate_hands() for _ in range(game_count)]
-        self.std_scale = 1 / np.sqrt(game_count)
+        self._hands_list = [generate_hands() for _ in range(game_count)]
+        self._std_scale = 1 / np.sqrt(game_count)
         self._return_ratio = return_ratio
         self._adversary = adversary
 
-    def _simulate(self, player):
+    def _simulate(self, player: Agent, verbose: int):
         points = []
         game_value = []
         player_orders = [(player, self._adversary, self._adversary),
                          (self._adversary, player, self._adversary),
                          (self._adversary, self._adversary, player)]
 
-        for hand in self.hands_list:
+        iter = tqdm(self._hands_list) if verbose > 1 else self._hands_list
+
+        for hand in iter:
             for i in range(3):
                 hand_copy = deepcopy(hand)
 
@@ -182,18 +245,25 @@ class Tester:
         return np.array(points).reshape(-1, 3), np.array(game_value).reshape(-1, 3)
 
     def evaluate(self, player, verbose=0):
-        points, game_value = self._simulate(player)
+        points, game_value = self._simulate(player, verbose)
 
         avg_points = points.mean()
-        std_points = points.mean(1).std()
+        std_points = points.mean(1).std() * self._std_scale
 
-        ratio = points / game_value
+        ratio = sum(points) / sum(game_value)
         avg_ratio = ratio.mean()
-        std_ratio = ratio.mean(1).std()
+
+        ratios = []
+        for _ in range(1000):
+            idx = np.random.randint(len(points), size=len(points))
+            ratio = points[idx].sum() / game_value[idx].sum()
+            ratios.append(ratio)
+
+        std_ratio = np.std(ratios)
 
         if verbose:
-            print(f"Score Achieved: {avg_points:.2f} +- {self.std_scale * 2 * std_points:.2f}")
-            print(f"Ratio Achieved: {avg_ratio:.1%} +- {self.std_scale * 2 * std_ratio:.1%}")
+            print(f"Score Achieved: {avg_points:.2f} +- {std_points:.2f}")
+            print(f"Ratio Achieved: {avg_ratio:.1%} +- {std_ratio:.1%}")
             print(f"Durch Made: {(points < 0).sum()}")
             print(f"Total Durch Made: {(game_value < 0).sum()}")
             print(f"Average Total Score: {game_value.mean()}")
@@ -204,51 +274,47 @@ class Tester:
             return avg_points
 
 
-class RewardTester:
-    def __init__(self, reward: Reward, adversary: Agent, run_count: int, episodes: int) -> None:
-        self._reward = reward
+class ThreeWayTester:
+    def __init__(self, game_count: int, run_count: int):
+        iter_count = game_count // run_count
+        self._hands_list = [[generate_hands() for _ in range(run_count)]
+                            for _ in range(iter_count)]
         self._run_count = run_count
-        self._iters = int(episodes / run_count)
-        self._episodes = self._iters * run_count
-        self._adversary = adversary
 
-    def _remove_done(self, x: List, mask: List[bool]) -> List:
-        return [item for item, m in zip(x, mask) if not m]
+    def _play_paralel_games(self, players: List[Agent], hands: List[List[Hand]]):
+        games = np.array([TrackedGameRound(starting_player=0, hands=deepcopy(hand))
+                          for hand in hands])
 
-    def _run(self, env: Environment, agent: Agent) -> float:
-        total_rewards = 0
-        observations, actions, _, done, idx = env.reset()
+        while not all([g.end for g in games]):
+            for player in range(PLAYERS):
+                mask = [g.phasing_player == player and not g.end for g in games]
+                if sum(mask) == 0:
+                    continue
 
-        while not all(done):
-            actions_to_play = agent.parallel_play(observations, actions)
-            observations, actions, rewards, done, _ = env.step(actions_to_play)
-            total_rewards += sum(rewards)
+                obs = [g.observe() for g in games[mask]]
+                observations, action_list = list(zip(*obs))
 
-            observations = self._remove_done(observations, done)
-            actions = self._remove_done(actions, done)
+                actions_to_play = players[player].parallel_play(observations, action_list)
 
-        return total_rewards
+                for game, action in zip(games[mask], actions_to_play):
+                    game.play(action)
 
-    def evaluate(self, agent: Agent, verbose: int = 0) -> float:
-        env = Environment(
-            reward=self._reward,
-            rival=self._adversary,
-            run_count=self._run_count
-        )
+        return np.array([g.points for g in games])
 
-        total_reward = 0
-        iter_item = range(self._iters)
-        if verbose > 1:
-            iter_item = tqdm(iter_item)
+    def evaluate(self, players: List[Agent]):
+        score_list = []
 
-        for _ in iter_item:
-            total_reward += self._run(env, agent)
+        for hands in tqdm(self._hands_list):
+            for idx in itertools.permutations(np.arange(PLAYERS)):
+                reordered_players = [players[i] for i in idx]
 
-        reward_per_episode = total_reward / self._episodes
-        if verbose:
-            print(f"Reward earned: {reward_per_episode}")
+                scores = self._play_paralel_games(reordered_players, hands)
 
-        return reward_per_episode
+                re_idx = np.argsort(idx)
+                score_list.append(scores[:, re_idx])
+
+        scores = np.concatenate(score_list, axis=0).sum(0)
+        return scores / scores.sum()
 
 
 def analyze_game_round(agent, hands=None):
