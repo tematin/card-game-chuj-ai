@@ -156,7 +156,9 @@ target_transformer = SimpleScaler()
 target_transformer.fit(y)
 
 #model = MainNetwork(channels=45, dense_sizes=[[256, 256], [64, 32]], depth=1).to("cuda")
-model = MainNetworkV2(channels=60, dense_sizes=[[256, 256], [128, 128], [64, 32]], depth=2).to("cuda")
+#model = MainNetworkV2(channels=60, dense_sizes=[[256, 256], [128, 128], [64, 32]], depth=2).to("cuda")
+model = MainNetworkV2(channels=120, dense_sizes=[[256, 256, 256], [128, 128, 128], [64, 64, 32]],
+                      depth=3, direct_channels=60).to("cuda")
 model(*[torch.tensor(x[:100]).float().to("cuda") for x in X]).mean()
 
 
@@ -225,4 +227,30 @@ runner = LeagueTrainRun(
 
 agent.load(Path('runs/baseline_run_8/episode_190000'))
 
-runner.train(12000)
+runner.train(5000)
+
+
+m = []
+
+for _ in tqdm(range(10000)):
+    scores = [0, 0, 0]
+    while max(scores) <= 100:
+        idx = np.random.choice([0, 1, 2], p=[0.28, 0.36, 0.36])
+
+        value = np.random.choice([1, 4, 8], p=[9/11, 1/11, 1/11])
+        double = np.random.choice([1, 2], p=[0.15, 0.85])
+
+        scores[idx] += value * double
+
+    m.append(np.argmax(scores))
+
+from collections import Counter
+Counter(m)
+
+
+
+
+
+
+
+

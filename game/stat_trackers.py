@@ -184,10 +184,10 @@ class DoubledCardsTracker(Tracker):
         self._bigger_doubled = False
 
     def _declaration_pre_play_update(self, game, cards):
-        if Card(colour=1, value=6) in cards:
+        if Card(1, 6) in cards:
             self._smaller_doubled = True
 
-        if Card(colour=2, value=6) in cards:
+        if Card(2, 6) in cards:
             self._bigger_doubled = True
 
     def get_observations(self, player):

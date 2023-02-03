@@ -11,7 +11,8 @@ from tqdm import tqdm
 
 from baselines.baselines import LowPlayer, Agent
 from game.constants import PLAYERS
-from game.environment import Tester, RewardTester, Environment, finish_game
+from game.environment import Tester, RewardTester, Environment, finish_game, \
+    analyze_game_round
 from game.game import Hand, TrackedGameRound
 from game.rewards import OrdinaryReward, RewardsCombiner, DeclaredDurchRewards, Reward
 from game.utils import generate_hands
@@ -98,21 +99,24 @@ def get_agent(path):
     return agent
 
 
+if False:
+    league = AgentLeague(
+        seed_agents=[
+            get_agent(Path('runs/baseline_run_6/episode_90000')),
+            get_agent(Path('runs/baseline_run_5/episode_180000')),
+            get_agent(Path('runs/baseline_run_5/episode_190000')),
+            get_agent(Path('runs/baseline_run_5/episode_200000'))
+        ],
+        game_count=100, max_agents=3
+    )
 
-league = AgentLeague(
-    seed_agents=[
-        get_agent(Path('runs/baseline_run_6/episode_90000')),
-        get_agent(Path('runs/baseline_run_5/episode_180000')),
-        get_agent(Path('runs/baseline_run_5/episode_190000')),
-        get_agent(Path('runs/baseline_run_5/episode_200000'))
-    ],
-    game_count=100, max_agents=3
-)
+    league._points()
+    league._avg_score()
 
-league._points()
-league._avg_score()
+    t = Tester(300, get_agent(Path('runs/baseline_run_8/episode_180000')))
+    t.evaluate(get_agent(Path('runs/baseline_run_10/episode_190000')), verbose=2)
 
-t = Tester(40, get_agent(Path('runs/baseline_run_6/episode_60000')))
-t.evaluate(get_agent(Path('runs/baseline_run_5/episode_60000')), verbose=2)
+    t = Tester(300, get_agent(Path('runs/baseline_run_5/episode_190000')))
+    t.evaluate(get_agent(Path('runs/baseline_run_10/episode_190000')), verbose=2)
 
 

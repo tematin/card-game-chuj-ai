@@ -148,7 +148,7 @@ class MainNetwork(nn.Module):
 
 
 class MainNetworkV2(nn.Module):
-    def __init__(self, channels, dense_sizes, depth, dropout_p=0.1, leak=0.01):
+    def __init__(self, channels, dense_sizes, depth, direct_channels=10, dropout_p=0.1, leak=0.01):
         super().__init__()
 
         self.conv_broad = BlockConvResLayer(
@@ -177,7 +177,7 @@ class MainNetworkV2(nn.Module):
             activation=nn.LeakyReLU(leak)
         )
 
-        self.simple_conv = nn.LazyConv2d(out_channels=10, kernel_size=(1, 9),
+        self.simple_conv = nn.LazyConv2d(out_channels=direct_channels, kernel_size=(1, 9),
                                          padding='valid')
 
         self.dense = BlockDenseSkipConnections(dense_sizes)

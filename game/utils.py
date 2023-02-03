@@ -26,14 +26,23 @@ def is_eligible_choice(pot, hand, card):
 class Card:
     colour_to_str = {0: '♥',
                      1: '☘',
-                     2: 'Z',
+                     2: '♠',
                      3: '⚈'}
     value_to_str = {5: 'D',
                     6: 'H',
                     7: 'K',
                     8: 'A'}
 
-    def __init__(self, colour, value):
+    str_to_colour = {v: k for k, v in colour_to_str.items()}
+    str_to_value = {v: k for k, v in value_to_str.items()}
+
+    def __init__(self, *args):
+        if len(args) == 2:
+            self._colour_value_init(*args)
+        elif len(args) == 1:
+            self._string_init(*args)
+
+    def _colour_value_init(self, colour, value):
         if not 0 <= value < VALUES:
             raise ValueError("Wrong value specified")
         if not 0 <= colour < COLOURS:
@@ -41,6 +50,10 @@ class Card:
         self._colour = colour
         self._value = value
         self._doubled = False
+
+    def _string_init(self, s):
+        colour_code, value_code = s
+        self._colour_value_init(int(colour_code), int(value_code))
 
     def double(self):
         self._doubled = True
@@ -77,9 +90,12 @@ class Card:
 
         return val
 
+    def __str__(self):
+        return str(self._colour) + str(self._value)
+
     def __repr__(self):
         colour_code = self.colour_to_str[self._colour]
-        value_code = self.value_to_str.get(self._colour, str(self._value + 6))
+        value_code = self.value_to_str.get(self._value, str(self._value + 6))
 
         point_value = self.get_point_value()
         if point_value > 2:

@@ -309,8 +309,8 @@ class DurchPhase:
 
 class DeclarationPhase:
     phase = GamePhase.DECLARATION
-    _allowed_doubling_cards = [Card(colour=1, value=6),
-                               Card(colour=2, value=6)]
+    _allowed_doubling_cards = [Card(1, 6),
+                               Card(2, 6)]
 
     def __init__(self, hands, starting_player) -> None:
         self._hands = hands

@@ -1,0 +1,39 @@
+<div class="container">
+
+    <div class="row">
+        <div class="col-4 mb-3">
+            <h2>Remaining Cards</h2>
+            {% for card in remaining_cards %}
+                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
+            {% endfor %}
+        </div>
+    </div>
+
+
+    <div class="row">
+        <div class="col-4 mb-3">
+            <h2>Second Player</h2>
+            {% for card in second_player_cards %}
+                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
+            {% endfor %}
+        </div>
+
+        <div class="col-4 mb-3">
+            <h2>Pot</h2>
+            {% for card in pot %}
+                <input type="image" src="images/{{ card }}.png" />
+            {% endfor %}
+        </div>
+
+        <div class="col-4 mb-3">
+            <h2>First Player</h2>
+            {% for card in fist_player_cards %}
+                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
+            {% endfor %}
+        </div>
+    </div>
+
+
+<div class=row>{{ observation }}</div>
+
+</div>
