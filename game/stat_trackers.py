@@ -180,18 +180,23 @@ class ReceivedCarsTracker(Tracker):
 
 class DoubledCardsTracker(Tracker):
     def reset(self, hands):
-        self._smaller_doubled = False
-        self._bigger_doubled = False
+        self._doubled = [False, False]
+        self._player = [None, None]
 
     def _declaration_pre_play_update(self, game, cards):
         if Card(1, 6) in cards:
-            self._smaller_doubled = True
+            self._doubled[0] = True
+            self._player[0] = game.phasing_player
 
         if Card(2, 6) in cards:
-            self._bigger_doubled = True
+            self._doubled[1] = True
+            self._player[1] = game.phasing_player
 
     def get_observations(self, player):
-        return {'doubled': [self._smaller_doubled, self._bigger_doubled]}
+        return {
+            'doubled': self._doubled,
+            'player_doubled': self._player
+        }
 
 
 class DurchDeclarationTracker(Tracker):

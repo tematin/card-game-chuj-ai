@@ -1,39 +1,67 @@
-<div class="container">
+<div class="row">
+    <div class="col">
+        <h2>Remaining Cards</h2>
+        {% for card in remaining_cards %}
+            <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
+        {% endfor %}
+    </div>
+</div>
 
-    <div class="row">
-        <div class="col-4 mb-3">
-            <h2>Remaining Cards</h2>
-            {% for card in remaining_cards %}
-                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
-            {% endfor %}
-        </div>
+
+<div class="row">
+    <div class="col-3">
+        <h2>Second Player</h2>
+        {% if declared_durch[2] %}
+            <h4><span class="badge bg-primary"> Hlaseny Durch </span></h4>
+        {% endif %}
+        {% if durch_possible[2] %}
+            <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+        {% endif %}
+        {% for card in second_player_cards %}
+            <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
+        {% endfor %}
     </div>
 
-
-    <div class="row">
-        <div class="col-4 mb-3">
-            <h2>Second Player</h2>
-            {% for card in second_player_cards %}
-                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
-            {% endfor %}
-        </div>
-
-        <div class="col-4 mb-3">
-            <h2>Pot</h2>
-            {% for card in pot %}
-                <input type="image" src="images/{{ card }}.png" />
-            {% endfor %}
-        </div>
-
-        <div class="col-4 mb-3">
-            <h2>First Player</h2>
-            {% for card in fist_player_cards %}
-                <input type="image" src="images/{{ card }}.png" width="77" height="120"/>
-            {% endfor %}
-        </div>
+    <div class="col-1">
+        <h2>.</h2>
+        {% for card in second_player_board %}
+            <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
+        {% endfor %}
     </div>
 
+    <div class="col-4">
+        <h2>Pot</h2>
+        {% for card in pot %}
+            <input type="image" src="images/{{ card }}.png" />
+        {% endfor %}
+    </div>
 
-<div class=row>{{ observation }}</div>
+    <div class="col-1">
+        <h2>.</h2>
+        {% for card in first_player_board %}
+            <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
+        {% endfor %}
+    </div>
 
+    <div class="col-3">
+        <h2>First Player</h2>
+        {% if declared_durch[1] %}
+            <h4><span class="badge bg-primary"> Hlaseny Durch </span></h4>
+        {% endif %}
+        {% if durch_possible[1] %}
+            <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+        {% endif %}
+        {% for card in first_player_cards %}
+            <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="row">
+    {% if declared_durch[0] %}
+        <h4><span class="badge bg-primary"> Hlaseny Durch </span></h4>
+    {% endif %}
+    {% if durch_possible[0] %}
+        <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+    {% endif %}
 </div>

@@ -5,10 +5,10 @@ import jinja2
 from pprint import pprint, pformat
 
 from baselines.baselines import LowPlayer
+from game.constants import CARDS_PER_PLAYER, PLAYERS
 #from eval import get_agent
 from game.utils import generate_hands, Card, GamePhase
 from game.game import TrackedGameRound
-
 
 action = None
 
@@ -42,19 +42,64 @@ def render_template(name, **kwargs):
     return template.render(**kwargs)
 
 
+def infer_card_count(observation):
+    cards = len(observation['hand'])
+    card_counts = [cards] * PLAYERS
+
+    pot_starter = observation['pot'].initial_player
+    for i in range(len(observation['pot'])):
+        card_counts[pot_starter] -= 1
+        pot_starter = (pot_starter + 1) % PLAYERS
+
+    return card_counts
+
+
+def fill_card_covers(cards, total_length):
+    fill_length = total_length - len(cards)
+    return cards + ['cover'] * fill_length
+
+
 def display_observations(observation):
     obs = pformat(observation, width=150)
     obs = obs.replace('\n', '<br>')
 
+    hand = observation['hand']
     possible_cards = observation['possible_cards']
+    card_count = infer_card_count(observation)
+
+    known_cards = [
+        sorted(set(possible_cards[0]) - set(possible_cards[1])),
+        sorted(set(possible_cards[1]) - set(possible_cards[0]))
+    ]
+
+    all_cards = set(possible_cards[0]).union(possible_cards[1]).union(hand)
+    declared = [[], [], []]
+    for i in range(2):
+        card = Card(i + 1, 6)
+        if observation['doubled'][i] and card in all_cards:
+            player = observation['player_doubled'][i]
+            declared[player].append(card)
+            card_count[player] -= 1
+            if player != 0:
+                known_cards[player - 1].remove(card)
+
+    for i in range(2):
+        known_cards[i] = fill_card_covers(known_cards[i], card_count[i + 1])
+
+    eligible_durch = observation['eligible_durch']
+    if sum(eligible_durch) > 1:
+        eligible_durch = [False, False, False]
 
     observation_html = render_template(
         'observation',
         pot=observation['pot'],
-        first_player_cards=sorted(set(possible_cards[0]) - set(possible_cards[1])),
-        second_player_cards=sorted(set(possible_cards[0]) - set(possible_cards[1])),
+        first_player_cards=known_cards[0],
+        second_player_cards=known_cards[1],
+        first_player_board=declared[1],
+        second_player_board=declared[2],
         remaining_cards=sorted(set(possible_cards[0]).union(set(possible_cards[1]))),
-        observation=obs
+        declared_durch=observation['declared_durch'],
+        durch_possible=eligible_durch,
     )
 
     eel.update_html("observation", observation_html)
