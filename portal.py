@@ -139,7 +139,12 @@ while not game.end:
     display_hand(observation)
 
     if game.phase == GamePhase.MOVING:
-        out = render_template('buttons', buttons=['next'])
+        out = render_template(
+            'buttons',
+            ids=['next'],
+            texts=['Potvrdit'],
+            types=['primary']
+        )
         eel.update_html("action", out)
         eel.init_cards_moving_choice()
 
@@ -147,7 +152,12 @@ while not game.end:
         game.play([Card(x) for x in actions])
 
     elif game.phase == GamePhase.DURCH:
-        out = render_template('buttons', buttons=['Declare', 'Pass'])
+        out = render_template(
+            'buttons',
+            ids=['Declare', 'Pass'],
+            texts=['Vyhlasit Durcha', 'Pass'],
+            types=['danger', 'primary']
+        )
         eel.update_html("action", out)
         eel.init_declaration()
 
@@ -155,26 +165,42 @@ while not game.end:
         game.play(action == 'true')
 
     elif game.phase == GamePhase.DECLARATION:
-        out = render_template('buttons', buttons=['next'])
-        eel.update_html("action", out)
-        eel.init_card_declaration()
+        if len(actions) == 1:
+            action = actions[0]
+        else:
+            out = render_template(
+                'buttons',
+                ids=['next'],
+                texts=['Potvrdit'],
+                types=['primary']
+            )
+            eel.update_html("action", out)
+            eel.init_card_declaration()
 
-        action = get_frontend_action()
-        action = tuple([Card(x) for x in action])
+            action = get_frontend_action()
+            action = tuple([Card(x) for x in action])
         game.play(action)
 
     elif game.phase == GamePhase.PLAY:
-        print("Hereee")
         eel.update_html("action", "")
-        eel.init_regular_play()
+        eel.init_regular_play([str(x) for x in actions])
 
         action = get_frontend_action()
-        print(action)
         action = Card(action[0])
-        print(action)
         game.play(action)
 
-    play_others(game, agent)
+    while game.phasing_player != 0:
+        if game.phase == GamePhase.PLAY:
+            zero_obs, _ = game.observe(player=0)
+            display_observations(zero_obs)
+            #display_hand(zero_obs)
+            eel.sleep(1)
+        observation, actions = game.observe()
+        action = agent.play(observation, actions)
+        game.play(action)
+
+
+
 
 print(game.points)
 

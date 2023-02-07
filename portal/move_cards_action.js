@@ -65,8 +65,6 @@ function init_cards_moving_choice() {
 
 eel.expose(init_declaration)
 function init_declaration() {
-    eel.log("E");
-
     $('#Declare').on("click", () => {
         eel.register_action("true");
     })
@@ -86,8 +84,8 @@ function init_card_declaration() {
 
 
 eel.expose(init_regular_play)
-function init_regular_play() {
+function init_regular_play(eligible_actions) {
     let selectable_buttons = new SelectableButtons(1, 1, "hand", "", (x) => {
         eel.register_action(x);
-    }, []);
+    }, eligible_actions);
 }

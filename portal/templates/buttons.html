@@ -1,3 +1,3 @@
-{% for button in buttons %}
-<button id="{{ button }}"> {{ button }} </button>
+{% for i in range(ids|length) %}
+    <button id="{{ ids[i] }}"  type="button" class="btn btn-{{ types[i] }}"> {{ texts[i] }} </button>
 {% endfor %}
