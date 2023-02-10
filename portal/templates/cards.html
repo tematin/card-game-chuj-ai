@@ -1,3 +1,11 @@
-{% for card in cards %}
-    <input type="image" id="{{ card }}" src="images/{{ card }}.png" width="98" height="168"/>
-{% endfor %}
+<div class="row">
+    <div class="col" id="hand_cards">
+        {% for card in cards %}
+        <div class="row_items">
+            <input class="selectable" type="image" id="{{ card }}" src="images/{{ card }}.png" width="98" height="168"/>
+            <br>
+            <h4 class="center"><span class="badge bg-info text-dark" id="num_val_{{ card }}">{{ values[card] }}</span></h4>
+        </div>
+        {% endfor %}
+    </div>
+</div>

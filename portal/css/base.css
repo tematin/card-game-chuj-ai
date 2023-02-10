@@ -5,3 +5,17 @@
     -ms-transform: rotate(90deg);
     transform: rotate(90deg);
 }
+
+.minh300 {
+    min-height: 300px;
+}
+
+.row_items {
+    float: left;
+}
+.centre {
+    padding: 15px;
+}
+
+.selectable {
+}

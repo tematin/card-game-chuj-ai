@@ -248,6 +248,10 @@ class MovingPhase:
     def current_player_hand(self):
         return self._hands[self._phasing_player]
 
+    @property
+    def hands(self):
+        return self._hands
+
     def eligible_choices(self):
         return list(combinations(self.current_player_hand, 2))
 
@@ -289,6 +293,10 @@ class DurchPhase:
     @property
     def current_player_hand(self):
         return self._hands[self._phasing_player]
+
+    @property
+    def hands(self):
+        return self._hands
 
     def next_stage(self):
         if self._declared_durch is None:
@@ -369,6 +377,10 @@ class DeclarationPhase:
     def current_player_hand(self):
         return self._hands[self._phasing_player]
 
+    @property
+    def hands(self):
+        return self._hands
+
     def eligible_choices(self):
         ret = []
         allowed_cards = [x for x in self.current_player_hand
@@ -402,7 +414,7 @@ class TrackedGameRound:
             player = self._game.phasing_player
 
         observation = {
-            'hand': self._game.current_player_hand,
+            'hand': self._game.hands[player],
             'phase': self._game.phase
         }
 

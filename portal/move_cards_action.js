@@ -1,9 +1,9 @@
 class SelectableButtons {
-    constructor(min_items, max_items, buttons_div, next_id, submit_callback, allowed_cards) {
+    constructor(min_items, max_items, next_id, submit_callback, allowed_cards) {
         this.min_items = min_items;
         this.max_items = max_items;
 
-        this.buttons = $('#' + buttons_div).children();
+        this.buttons = $('.selectable');
 
         if (next_id == '') {
             this.next = null;
@@ -55,9 +55,10 @@ class SelectableButtons {
 }
 
 
+
 eel.expose(init_cards_moving_choice)
 function init_cards_moving_choice() {
-    let selectable_buttons = new SelectableButtons(2, 2, "hand", "next", (x) => {
+    let selectable_buttons = new SelectableButtons(2, 2, "next", (x) => {
         eel.register_action(x);
     }, []);
 }
@@ -77,7 +78,7 @@ function init_declaration() {
 
 eel.expose(init_card_declaration)
 function init_card_declaration() {
-    let selectable_buttons = new SelectableButtons(0, 2, "hand", "next", (x) => {
+    let selectable_buttons = new SelectableButtons(0, 2, "next", (x) => {
         eel.register_action(x);
     }, ['16', '26']);
 }
@@ -85,7 +86,7 @@ function init_card_declaration() {
 
 eel.expose(init_regular_play)
 function init_regular_play(eligible_actions) {
-    let selectable_buttons = new SelectableButtons(1, 1, "hand", "", (x) => {
+    let selectable_buttons = new SelectableButtons(1, 1, "", (x) => {
         eel.register_action(x);
     }, eligible_actions);
 }
