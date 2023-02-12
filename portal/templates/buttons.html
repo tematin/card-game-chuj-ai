@@ -1,3 +1,7 @@
 {% for i in range(ids|length) %}
+<div class="row_items centre">
     <button id="{{ ids[i] }}"  type="button" class="btn btn-{{ types[i] }}"> {{ texts[i] }} </button>
+    <br>
+    <h4><span class="badge bg-info text-dark value_labels" id="label_{{ ids[i] }}">{{ values[i] }}</span></h4>
+</div>
 {% endfor %}

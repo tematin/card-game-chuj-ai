@@ -9,7 +9,7 @@ import numpy as np
 
 from baselines.baselines import LowPlayer
 from game.constants import CARDS_PER_PLAYER, PLAYERS
-from eval import get_agent
+from baselines.agents import phase_one
 from game.utils import generate_hands, Card, GamePhase
 from game.game import TrackedGameRound
 
@@ -94,9 +94,15 @@ def display_observations(observation):
     if sum(eligible_durch) > 1:
         eligible_durch = [False, False, False]
 
+    pot_cards = [None, None, None]
+    p = observation['pot'].initial_player
+    for card in observation['pot']:
+        pot_cards[p] = card
+        p = (p + 1) % PLAYERS
+
     observation_html = render_template(
         'observation',
-        pot=observation['pot'],
+        pot=pot_cards,
         first_player_cards=known_cards[0],
         second_player_cards=known_cards[1],
         first_player_board=declared[1],
@@ -104,6 +110,7 @@ def display_observations(observation):
         remaining_cards=sorted(set(possible_cards[0]).union(set(possible_cards[1]))),
         declared_durch=observation['declared_durch'],
         durch_possible=eligible_durch,
+        score=observation['score']
     )
 
     eel.update_html("observation", observation_html)
@@ -137,17 +144,29 @@ def play_others(game, agent):
         game.play(action)
 
 
+def moving_dictionary_values(actions, values):
+    ret = []
+    for action, value in zip(actions, values):
+        item = [[str(x) for x in action], float(value)]
+        ret.append(item)
+    print(ret)
+    return ret
+
+
+agent = phase_one('8_190')
+#agent = LowPlayer()
+
 eel.init('portal')
 eel.start('main.html', block=False)
 
 
-agent = get_agent(Path('runs/baseline_run_10/episode_190000'))
-#agent = LowPlayer()
-
-
+score = [0, 0, 0]
 starting = -1
 
 while True:
+    out = render_template('score', score=score)
+    eel.update_html("score", out)
+
     starting = (starting + 1) % PLAYERS
     game = TrackedGameRound(starting, generate_hands())
     play_others(game, agent)
@@ -163,10 +182,13 @@ while True:
                 'buttons',
                 ids=['next'],
                 texts=['Potvrdit'],
-                types=['primary']
+                types=['primary'],
+                values=['']
             )
+            val_list = moving_dictionary_values(actions, values)
+
             eel.update_html("action", out)
-            eel.init_cards_moving_choice()
+            eel.init_cards_moving_choice(val_list)
 
             actions = get_frontend_action()
             game.play([Card(x) for x in actions])
@@ -176,7 +198,8 @@ while True:
                 'buttons',
                 ids=['Declare', 'Pass'],
                 texts=['Vyhlasit Durcha', 'Pass'],
-                types=['danger', 'primary']
+                types=['danger', 'primary'],
+                values=[np.round(x, 2) for x in values]
             )
             eel.update_html("action", out)
             eel.init_declaration()
@@ -192,10 +215,14 @@ while True:
                     'buttons',
                     ids=['next'],
                     texts=['Potvrdit'],
-                    types=['primary']
+                    types=['primary'],
+                    values=['']
                 )
+
                 eel.update_html("action", out)
-                eel.init_card_declaration()
+
+                val_list = moving_dictionary_values(actions, values)
+                eel.init_card_declaration(val_list)
 
                 action = get_frontend_action()
                 action = tuple([Card(x) for x in action])
@@ -232,4 +259,4 @@ while True:
 
             game.play(action)
 
-    print(game.points)
+    score = [int(x + y) for x, y in zip(game.points, score)]

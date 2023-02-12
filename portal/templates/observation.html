@@ -17,6 +17,8 @@
         {% if durch_possible[2] %}
             <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
         {% endif %}
+        <h4><span class="badge bg-secondary"> Body: {{ score[2] }} </span></h4>
+
         {% for card in second_player_cards %}
             <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
         {% endfor %}
@@ -31,9 +33,21 @@
 
     <div class="col-4">
         <h2>.</h2>
-        {% for card in pot %}
-            <input type="image" src="images/{{ card }}.png" />
-        {% endfor %}
+        <div class="row">
+            <div class="col">
+                <div style="display: flex; align-items: center; justify-content: center; height: 10vh;">
+                    <input type="image" src="images/{{ pot[2] }}.png" />
+                    <input type="image" src="images/{{ pot[1] }}.png" />
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div style="display: flex; align-items: center; justify-content: center; height: 10vh;">
+                    <input type="image" src="images/{{ pot[0] }}.png" />
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="col-1">
@@ -51,6 +65,7 @@
         {% if durch_possible[1] %}
             <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
         {% endif %}
+        <h4><span class="badge bg-secondary"> Body: {{ score[1] }} </span></h4>
         {% for card in first_player_cards %}
             <input type="image" src="images/{{ card }}.png" width="61" height="96"/>
         {% endfor %}
@@ -65,5 +80,6 @@
     {% if durch_possible[0] %}
         <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
     {% endif %}
+    <h4><span class="badge bg-secondary"> Body: {{ score[0] }} </span></h4>
     </div>
 </div>
