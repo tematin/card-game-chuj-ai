@@ -16,7 +16,10 @@ class Hand:
         self._cards = cards
 
     def remove_card(self, card):
+        i = self._cards.index(card)
+        card = self._cards[i]
         self._cards.remove(card)
+        return card
 
     def add_card(self, card):
         self._cards.append(card)
@@ -122,10 +125,11 @@ class PlayPhase:
         if self._end:
             raise RuntimeError("Game already ended")
 
-        if not is_eligible_choice(self._pot, self._hands[self.phasing_player], card):
+        current_hand = self._hands[self._phasing_player]
+        if not is_eligible_choice(self._pot, current_hand, card):
             raise RuntimeError("Foul play")
 
-        self._hands[self._phasing_player].remove_card(card)
+        card = self._hands[self._phasing_player].remove_card(card)
         self._pot.add_card(card)
 
         if self._pot.is_full():
@@ -405,7 +409,7 @@ class TrackedGameRound:
         self._trackers = trackers
 
         for tracker in self._trackers:
-            tracker.reset(hands)
+            tracker.reset(hands, starting_player)
 
         self._end = False
 
@@ -415,7 +419,7 @@ class TrackedGameRound:
 
         observation = {
             'hand': self._game.hands[player],
-            'phase': self._game.phase
+            'phase': self._game.phase,
         }
 
         if self._game.phase == GamePhase.PLAY:

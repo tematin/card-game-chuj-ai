@@ -13,12 +13,15 @@ def get_all_trackers():
         ReceivedCarsTracker(),
         DoubledCardsTracker(),
         RemainingPossibleCardsTracker(),
-        DurchEligibilityTracker()
+        DurchEligibilityTracker(),
+        HistoryTracker(),
+        PlayedCardsTracker(),
+        StartingPlayerTracker()
     ]
 
 
 class Tracker(ABC):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         pass
 
     def pre_play_update(self, game, card):
@@ -50,11 +53,58 @@ class Tracker(ABC):
         pass
 
 
+class HistoryTracker(Tracker):
+    def reset(self, hands, starting_player):
+        self._durch_phase = []
+        self._declaration_phase = []
+        self._play_phase = []
+
+    def _play_phase_pre_play_update(self, game, card):
+        self._play_phase.append((game.phasing_player, card))
+
+    def _declaration_pre_play_update(self, game, cards):
+        self._declaration_phase.append((game.phasing_player, cards))
+
+    def _durch_pre_play_update(self, game, declared):
+        self._durch_phase.append((game.phasing_player, declared))
+
+    def get_observations(self, player):
+        return {
+            'declaration_history': self._declaration_phase,
+            'durch_history': self._durch_phase,
+            'play_history': self._play_phase
+        }
+
+
+class PlayedCardsTracker(Tracker):
+    def reset(self, hands, starting_player):
+        self._played_cards = [[] for _ in range(PLAYERS)]
+
+    def _play_phase_pre_play_update(self, game, card):
+        self._played_cards[game.phasing_player].append(card)
+
+    def get_observations(self, player):
+        return {
+            'played_cards': _offset_array(self._played_cards, player)
+        }
+
+
+class StartingPlayerTracker(Tracker):
+    def reset(self, hands, starting_player):
+        self._starting_player = starting_player
+
+    def get_observations(self, player):
+        return {
+            'starting_player': (self._starting_player - player) % 3
+        }
+
+
+
 class RemainingPossibleCardsTracker(Tracker):
     def __init__(self):
         self._possible_cards = None
 
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._possible_cards = [[get_deck() for _ in range(PLAYERS - 1)]
                                 for _ in range(PLAYERS)]
         for i in range(PLAYERS):
@@ -113,7 +163,7 @@ class RemainingPossibleCardsTracker(Tracker):
 
 
 class ScoreTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._score = [0 for _ in range(PLAYERS)]
 
     def post_play_update(self, game):
@@ -130,7 +180,7 @@ class ScoreTracker(Tracker):
 
 
 class DurchEligibilityTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._took_card = np.full(PLAYERS, False)
 
     def post_play_update(self, game):
@@ -155,7 +205,7 @@ class DurchEligibilityTracker(Tracker):
 
 
 class MovedCardsTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._moved_cards = [[]] * PLAYERS
 
     def _moving_pre_play_update(self, game, cards):
@@ -167,7 +217,7 @@ class MovedCardsTracker(Tracker):
 
 
 class ReceivedCarsTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._moved_cards = [[]] * PLAYERS
 
     def _moving_pre_play_update(self, game, cards):
@@ -179,7 +229,7 @@ class ReceivedCarsTracker(Tracker):
 
 
 class DoubledCardsTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._doubled = [False, False]
         self._player = [None, None]
 
@@ -200,7 +250,7 @@ class DoubledCardsTracker(Tracker):
 
 
 class DurchDeclarationTracker(Tracker):
-    def reset(self, hands):
+    def reset(self, hands, starting_player):
         self._declared = np.full(PLAYERS, 0.0)
 
     def _durch_pre_play_update(self, game, declared):

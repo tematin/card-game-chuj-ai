@@ -41,6 +41,17 @@ class Trainer(ABC):
         pass
 
 
+class ValueAgent(Agent, ABC):
+    @abstractmethod
+    def values(self, observation: dict, actions: List[Any]) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def parallel_values(self, observations: List[dict],
+                        action_list: List[List[Any]]) -> List[np.ndarray]:
+        pass
+
+
 def fill_memory(memory: Memory, reward: float):
     for i in range(memory.yield_length - 1):
         memory.set(
@@ -90,11 +101,7 @@ class TrainedDoubleQ(Agent):
         }
 
     def play(self, observation: dict, actions: List[Any]) -> Any:
-        features = self._feature_generator.state_action(observation, actions)
-
-        q1_vals = self._q[0].get(features)
-        q2_vals = self._q[1].get(features)
-        q_vals = (q1_vals + q2_vals)
+        q_vals = self.values(observation, actions)
 
         idx = np.argmax(q_vals)
 
@@ -102,6 +109,24 @@ class TrainedDoubleQ(Agent):
 
     def parallel_play(self, observations: List[dict],
                       action_list: List[List[Any]]) -> List[Any]:
+        values = self.parallel_values(observations, action_list)
+        actions_to_play = []
+        for run_id in range(len(observations)):
+            idx = np.argmax(values[run_id])
+
+            actions_to_play.append(action_list[run_id][idx])
+
+        return actions_to_play
+
+    def values(self, observation: dict, actions: List[Any]) -> np.ndarray:
+        features = self._feature_generator.state_action(observation, actions)
+
+        q1_vals = self._q[0].get(features)
+        q2_vals = self._q[1].get(features)
+        return (q1_vals + q2_vals) / 2
+
+    def parallel_values(self, observations: List[dict],
+                        action_list: List[List[Any]]) -> List[np.ndarray]:
         assert len(observations) == len(action_list)
         features = [self._feature_generator.state_action(observation, actions)
                     for observation, actions in zip(observations, action_list)]
@@ -109,15 +134,12 @@ class TrainedDoubleQ(Agent):
         q1_vals = self._q[0].get_from_list(features)
         q2_vals = self._q[1].get_from_list(features)
 
-        actions_to_play = []
+        q_val_list = []
         for run_id in range(len(observations)):
             q_vals = (q1_vals[run_id] + q2_vals[run_id]) / 2
+            q_val_list.append(q_vals)
 
-            idx = np.argmax(q_vals)
-
-            actions_to_play.append(action_list[run_id][idx])
-
-        return actions_to_play
+        return q_val_list
 
 
 class DoubleTrainer(Trainer, TrainedDoubleQ):
