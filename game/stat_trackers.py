@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 
 import numpy as np
 from .constants import PLAYERS
@@ -49,6 +49,7 @@ class Tracker(ABC):
     def post_play_update(self, game):
         pass
 
+    @abstractmethod
     def get_observations(self, player):
         pass
 
@@ -75,6 +76,9 @@ class HistoryTracker(Tracker):
             'play_history': self._play_phase
         }
 
+    def _rotate_player(self, player, items):
+        return [(_offset_player(x, player), y) for x, y in items]
+
 
 class PlayedCardsTracker(Tracker):
     def reset(self, hands, starting_player):
@@ -95,15 +99,11 @@ class StartingPlayerTracker(Tracker):
 
     def get_observations(self, player):
         return {
-            'starting_player': (self._starting_player - player) % 3
+            'starting_player': _offset_player(self._starting_player, player)
         }
 
 
-
 class RemainingPossibleCardsTracker(Tracker):
-    def __init__(self):
-        self._possible_cards = None
-
     def reset(self, hands, starting_player):
         self._possible_cards = [[get_deck() for _ in range(PLAYERS - 1)]
                                 for _ in range(PLAYERS)]
@@ -263,3 +263,7 @@ class DurchDeclarationTracker(Tracker):
 
 def _offset_array(x, player):
     return [x[(player + j) % PLAYERS] for j in range(PLAYERS)]
+
+
+def _offset_player(absolute_player: int, relative_for: int) -> int:
+    return (absolute_player - relative_for) % PLAYERS

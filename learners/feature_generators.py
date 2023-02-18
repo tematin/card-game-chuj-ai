@@ -223,7 +223,7 @@ def generate_dataset(
         env: OneThreadEnvironment,
         agent: Agent,
         episodes: int,
-        feature_generator: FeatureGenerator
+        feature_generator: FeatureGenerator,
 ) -> Tuple[List[np.ndarray], np.ndarray]:
     feature_dataset = []
     reward_dataset = []

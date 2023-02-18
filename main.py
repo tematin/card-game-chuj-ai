@@ -7,7 +7,6 @@ from torch import nn
 import numpy as np
 from torch.optim.lr_scheduler import StepLR, ExponentialLR
 
-from baselines.agents import first_baseline
 from baselines.baselines import RandomPlayer, LowPlayer, Agent
 from game.environment import Tester, Environment, OneThreadEnvironment, RewardTester
 from game.rewards import OrdinaryReward, RewardsCombiner, DurchDeclarationPenalty, \
@@ -131,7 +130,7 @@ base_embedder = Lambda2DEmbedder(
      get_flat_by_key('declared_durch'),
      get_cards_remaining,
      get_durch_phase_action,
-     get_declaration_phase_action
+     get_declaration_phase_action,
      ],
 )
 
@@ -215,38 +214,17 @@ runner = LeagueTrainRun(
     agent=agent,
     testers={
         '5_190': Tester(30, get_agent(Path('runs/baseline_run_5/episode_190000'))),
-        '8_160': Tester(30, get_agent(Path('runs/baseline_run_8/episode_140000'))),
-        '8_190': Tester(30, get_agent(Path('runs/baseline_run_8/episode_190000'))),
+        '8_160': Tester(30, get_agent(Path('runs/baseline_run_8/episode_190000'))),
+        '8_190': Tester(30, get_agent(Path('runs/baseline_run_10/episode_190000'))),
     },
     reward=reward,
     eval_freq=10000,
     run_count=run_count,
-    checkpoint_dir=Path('runs/baseline_run_12').absolute(),
+    checkpoint_dir=Path('runs/baseline_run_13').absolute(),
     league=league
 )
 
-agent.load(Path('runs/baseline_run_8/episode_190000'))
-
-runner.train(5000)
-
-
-m = []
-
-for _ in tqdm(range(10000)):
-    scores = [0, 0, 0]
-    while max(scores) <= 100:
-        idx = np.random.choice([0, 1, 2], p=[0.28, 0.36, 0.36])
-
-        value = np.random.choice([1, 4, 8], p=[9/11, 1/11, 1/11])
-        double = np.random.choice([1, 2], p=[0.15, 0.85])
-
-        scores[idx] += value * double
-
-    m.append(np.argmax(scores))
-
-from collections import Counter
-Counter(m)
-
+runner.train(18000)
 
 
 

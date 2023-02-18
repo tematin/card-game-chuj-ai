@@ -46,10 +46,16 @@ class ValueAgent(Agent, ABC):
     def values(self, observation: dict, actions: List[Any]) -> np.ndarray:
         pass
 
-    @abstractmethod
     def parallel_values(self, observations: List[dict],
                         action_list: List[List[Any]]) -> List[np.ndarray]:
-        pass
+        return [self.values(o, a) for o, a in zip(observations, action_list)]
+
+    def play(self, observation: dict, actions: List[Any]) -> Any:
+        vals = self.values(observation, actions)
+
+        idx = np.argmax(vals)
+
+        return actions[idx]
 
 
 def fill_memory(memory: Memory, reward: float):
@@ -76,7 +82,7 @@ def fill_update_steps(update_steps: Memory, reward: float):
         )
 
 
-class TrainedDoubleQ(Agent):
+class TrainedDoubleQ(ValueAgent):
     def __init__(self, approximators: Tuple[Approximator, Approximator],
                  feature_generator: FeatureGenerator) -> None:
         self._q = approximators
@@ -99,13 +105,6 @@ class TrainedDoubleQ(Agent):
             'q2_vals': q2_vals,
             'q_avg': q_vals,
         }
-
-    def play(self, observation: dict, actions: List[Any]) -> Any:
-        q_vals = self.values(observation, actions)
-
-        idx = np.argmax(q_vals)
-
-        return actions[idx]
 
     def parallel_play(self, observations: List[dict],
                       action_list: List[List[Any]]) -> List[Any]:

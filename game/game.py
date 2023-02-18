@@ -212,7 +212,7 @@ class MovingPhase:
         self._starting_player = starting_player
         self._hands = [Hand(x) for x in hands]
         self._moved_cards = [list() for _ in range(PLAYERS)]
-        self._phasing_player = 0
+        self._phasing_player = starting_player
         self._end = False
 
     def play(self, cards):
@@ -228,8 +228,8 @@ class MovingPhase:
             self._moved_cards[self._phasing_player].append(card)
             self._hands[self._phasing_player].remove_card(card)
 
-        self._phasing_player += 1
-        if self._phasing_player == PLAYERS:
+        self._phasing_player = (self._phasing_player + 1) % PLAYERS
+        if self._phasing_player == self._starting_player:
             self._end = True
 
             for i in range(PLAYERS):
@@ -329,7 +329,7 @@ class DeclarationPhase:
         self._starting_player = starting_player
 
         self._end = False
-        self._phasing_player = 0
+        self._phasing_player = starting_player
         self._round = 0
 
         self._doubled_cards = []
@@ -347,11 +347,11 @@ class DeclarationPhase:
 
             self._doubled_cards.append(card)
 
-        self._phasing_player += 1
-        if self._phasing_player == PLAYERS:
+        self._phasing_player = (self._phasing_player + 1) % PLAYERS
+        if self._phasing_player == self._starting_player:
             if self._round == 0 and len(self._doubled_cards) == 1:
                 self._round = 1
-                self._phasing_player = 0
+
             else:
                 self._double_values()
                 self._end = True

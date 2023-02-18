@@ -211,12 +211,11 @@ class RewardTester:
 
 
 class Tester:
-    def __init__(self, game_count, adversary, return_ratio=False, seed=123456):
+    def __init__(self, game_count, adversary, seed=123456):
         if seed is not None:
             np.random.seed(seed)
         self._hands_list = [generate_hands() for _ in range(game_count)]
         self._std_scale = 1 / np.sqrt(game_count)
-        self._return_ratio = return_ratio
         self._adversary = adversary
 
     def _simulate(self, player: Agent, verbose: int):
@@ -262,16 +261,13 @@ class Tester:
         std_ratio = np.std(ratios)
 
         if verbose:
-            print(f"Score Achieved: {avg_points:.2f} +- {std_points:.2f}")
             print(f"Ratio Achieved: {avg_ratio:.1%} +- {std_ratio:.1%}")
+            print(f"Score Achieved: {avg_points:.2f} +- {std_points:.2f}")
+            print(f"Average Total Score: {game_value.mean()}")
             print(f"Durch Made: {(points < 0).sum()}")
             print(f"Total Durch Made: {(game_value < 0).sum()}")
-            print(f"Average Total Score: {game_value.mean()}")
 
-        if self._return_ratio:
-            return avg_ratio
-        else:
-            return avg_points
+        return avg_ratio
 
 
 class ThreeWayTester:

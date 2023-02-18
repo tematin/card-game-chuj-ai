@@ -325,7 +325,6 @@ class LeagueTrainRun:
             json.dump(performance, f)
 
 
-
 def extract_params(obj):
     if hasattr(obj, 'params'):
         extracted_vals = {

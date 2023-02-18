@@ -10,8 +10,11 @@ import numpy as np
 from baselines.baselines import LowPlayer
 from game.constants import CARDS_PER_PLAYER, PLAYERS
 from baselines.agents import phase_one
+from game.rewards import RewardsCombiner, OrdinaryReward, DeclaredDurchRewards
 from game.utils import generate_hands, Card, GamePhase
 from game.game import TrackedGameRound
+from learners.explorers import Softmax, Random, ExplorationCombiner
+from tree import TreeSearch
 
 
 @eel.expose
@@ -64,9 +67,6 @@ def fill_card_covers(cards, total_length):
 
 
 def display_observations(observation):
-    obs = pformat(observation, width=150)
-    obs = obs.replace('\n', '<br>')
-
     hand = observation['hand']
     possible_cards = observation['possible_cards']
     card_count = infer_card_count(observation)
@@ -153,7 +153,8 @@ def moving_dictionary_values(actions, values):
     return ret
 
 
-agent = phase_one('8_190')
+agent = phase_one('10_190')
+
 #agent = LowPlayer()
 
 eel.init('portal')

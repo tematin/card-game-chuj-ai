@@ -47,7 +47,17 @@ def phase_one(name):
 
     target_transformer = SimpleScaler()
 
-    model = MainNetworkV2(channels=60, dense_sizes=[[256, 256], [128, 128], [64, 32]], depth=2).to("cuda")
+    if name[:2] == '12':
+        model = MainNetworkV2(
+            channels=120, dense_sizes=[[256, 256, 256], [128, 128, 128], [64, 64, 32]],
+            depth=3, direct_channels=60
+        ).to("cuda")
+    else:
+        model = MainNetworkV2(
+            channels=60,
+            dense_sizes=[[256, 256], [128, 128], [64, 32]],
+            depth=2
+        ).to("cuda")
 
     X = [np.random.rand(64, 8, 4, 9), np.random.rand(64, 32)]
     model(*[torch.tensor(x).float().to("cuda") for x in X]).mean()
