@@ -87,4 +87,3 @@ class PartialGame:
             'hand': self._hand,
             'phase': self._phase
         }
-

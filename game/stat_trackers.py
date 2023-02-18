@@ -1,52 +1,99 @@
 from abc import ABC, abstractmethod
+from copy import deepcopy
 
 import numpy as np
 from .constants import PLAYERS
 from .utils import get_deck, Card, GamePhase
 
 
-def get_all_trackers():
-    return [
+def get_default_tracker():
+    return GameTrackerManager([
         DurchDeclarationTracker(),
         ScoreTracker(),
-        MovedCardsTracker(),
-        ReceivedCarsTracker(),
         DoubledCardsTracker(),
-        RemainingPossibleCardsTracker(),
         DurchEligibilityTracker(),
         HistoryTracker(),
         PlayedCardsTracker(),
         StartingPlayerTracker()
-    ]
+    ], [
+        MovedCardsTracker(),
+        ReceivedCarsTracker(),
+        RemainingPossibleCardsTracker(),
+    ])
 
 
-class Tracker(ABC):
+class GameTrackerManager:
+    def __init__(self, public_trackers, private_trackers):
+        self._public_trackers = public_trackers
+        self._private_trackers = []
+        for i in range(PLAYERS):
+            trackers = [RelativePrivateTracker(deepcopy(tracker), i)
+                        for tracker in private_trackers]
+            self._private_trackers.append(trackers)
+
     def reset(self, hands, starting_player):
+        for tracker in self._public_trackers:
+            tracker.reset(starting_player)
+
+        for player, tracker_list in enumerate(self._private_trackers):
+            for tracker in tracker_list:
+                tracker.reset(hands[player], starting_player)
+
+    def pre_play_update(self, phase, player, action, pot):
+        if phase == GamePhase.DURCH:
+            for tracker in self._yield_all_trackers():
+                tracker.durch_pre_play_update(player, action)
+        elif phase == GamePhase.DECLARATION:
+            for tracker in self._yield_all_trackers():
+                tracker.declaration_pre_play_update(player, action)
+        elif phase == GamePhase.PLAY:
+            for tracker in self._yield_all_trackers():
+                tracker.play_phase_pre_play_update(player, action, pot)
+        elif phase == GamePhase.MOVING:
+            for tracker in self._private_trackers[player]:
+                tracker.moved_cards(action)
+            for tracker in self._private_trackers[(player + 1) % PLAYERS]:
+                tracker.received_cards(action)
+        else:
+            raise RuntimeError()
+
+    def post_play_update(self, pot):
+        for tracker in self._yield_all_trackers():
+            tracker.post_play_update(pot)
+
+    def _yield_all_trackers(self):
+        for tracker in self._public_trackers:
+            yield tracker
+
+        for tracker_list in self._private_trackers:
+            for tracker in tracker_list:
+                yield tracker
+
+    def get_observations(self, player):
+        ret = {}
+        for tracker in self._public_trackers:
+            ret.update(tracker.get_observations(player))
+
+        for tracker in self._private_trackers[player]:
+            ret.update(tracker.get_observations())
+
+        return ret
+
+
+class PublicTracker(ABC):
+    def reset(self, starting_player):
         pass
 
-    def pre_play_update(self, game, card):
-        if game.phase == GamePhase.PLAY:
-            self._play_phase_pre_play_update(game, card)
-        elif game.phase == GamePhase.DECLARATION:
-            self._declaration_pre_play_update(game, card)
-        elif game.phase == GamePhase.MOVING:
-            self._moving_pre_play_update(game, card)
-        elif game.phase == GamePhase.DURCH:
-            self._durch_pre_play_update(game, card)
-
-    def _play_phase_pre_play_update(self, game, card):
+    def play_phase_pre_play_update(self, player, card, pot):
         pass
 
-    def _declaration_pre_play_update(self, game, cards):
+    def declaration_pre_play_update(self, player, declared_cards):
         pass
 
-    def _durch_pre_play_update(self, game, declared):
+    def durch_pre_play_update(self, player, declared):
         pass
 
-    def _moving_pre_play_update(self, game, cards):
-        pass
-
-    def post_play_update(self, game):
+    def post_play_update(self, pot):
         pass
 
     @abstractmethod
@@ -54,20 +101,83 @@ class Tracker(ABC):
         pass
 
 
-class HistoryTracker(Tracker):
-    def reset(self, hands, starting_player):
+class PrivateTracker(ABC):
+    @abstractmethod
+    def reset(self, hand, starting_player):
+        pass
+
+    def moved_cards(self, cards):
+        pass
+
+    def received_cards(self, cards):
+        pass
+
+    def play_phase_pre_play_update(self, player, card, pot):
+        pass
+
+    def declaration_pre_play_update(self, player, declared_cards):
+        pass
+
+    def durch_pre_play_update(self, player, declared):
+        pass
+
+    def post_play_update(self, pot):
+        pass
+
+    @abstractmethod
+    def get_observations(self):
+        pass
+
+
+class RelativePrivateTracker:
+    def __init__(self, tracker: PrivateTracker, player: int) -> None:
+        self._tracker = tracker
+        self._player = player
+
+    @abstractmethod
+    def reset(self, hand, starting_player):
+        starting_player = _offset_player(starting_player, self._player)
+        self._tracker.reset(hand, starting_player)
+
+    def moved_cards(self, cards):
+        self._tracker.moved_cards(cards)
+
+    def received_cards(self, cards):
+        self._tracker.received_cards(cards)
+
+    def play_phase_pre_play_update(self, player, card, pot):
+        player = _offset_player(player, self._player)
+        self._tracker.play_phase_pre_play_update(player, card, pot)
+
+    def declaration_pre_play_update(self, player, declared_cards):
+        player = _offset_player(player, self._player)
+        self._tracker.declaration_pre_play_update(player, declared_cards)
+
+    def durch_pre_play_update(self, player, declared):
+        player = _offset_player(player, self._player)
+        self._tracker.durch_pre_play_update(player, declared)
+
+    def post_play_update(self, pot):
+        pass
+
+    def get_observations(self):
+        return self._tracker.get_observations()
+
+
+class HistoryTracker(PublicTracker):
+    def reset(self, starting_player):
         self._durch_phase = []
         self._declaration_phase = []
         self._play_phase = []
 
-    def _play_phase_pre_play_update(self, game, card):
-        self._play_phase.append((game.phasing_player, card))
+    def play_phase_pre_play_update(self, player, card, pot):
+        self._play_phase.append((player, card))
 
-    def _declaration_pre_play_update(self, game, cards):
-        self._declaration_phase.append((game.phasing_player, cards))
+    def declaration_pre_play_update(self, player, declared_cards):
+        self._declaration_phase.append((player, declared_cards))
 
-    def _durch_pre_play_update(self, game, declared):
-        self._durch_phase.append((game.phasing_player, declared))
+    def durch_pre_play_update(self, player, card):
+        self._durch_phase.append((player, card))
 
     def get_observations(self, player):
         return {
@@ -80,12 +190,12 @@ class HistoryTracker(Tracker):
         return [(_offset_player(x, player), y) for x, y in items]
 
 
-class PlayedCardsTracker(Tracker):
-    def reset(self, hands, starting_player):
+class PlayedCardsTracker(PublicTracker):
+    def reset(self, starting_player):
         self._played_cards = [[] for _ in range(PLAYERS)]
 
-    def _play_phase_pre_play_update(self, game, card):
-        self._played_cards[game.phasing_player].append(card)
+    def play_phase_pre_play_update(self, player, card, pot):
+        self._played_cards[player].append(card)
 
     def get_observations(self, player):
         return {
@@ -93,8 +203,8 @@ class PlayedCardsTracker(Tracker):
         }
 
 
-class StartingPlayerTracker(Tracker):
-    def reset(self, hands, starting_player):
+class StartingPlayerTracker(PublicTracker):
+    def reset(self, starting_player):
         self._starting_player = starting_player
 
     def get_observations(self, player):
@@ -103,75 +213,42 @@ class StartingPlayerTracker(Tracker):
         }
 
 
-class RemainingPossibleCardsTracker(Tracker):
-    def reset(self, hands, starting_player):
-        self._possible_cards = [[get_deck() for _ in range(PLAYERS - 1)]
-                                for _ in range(PLAYERS)]
-        for i in range(PLAYERS):
-            for card in hands[i]:
-                for j in range(PLAYERS - 1):
-                    self._possible_cards[i][j].remove(card)
+class RemainingPossibleCardsTracker(PrivateTracker):
+    def reset(self, hand, starting_player):
+        self._possible_cards = [get_deck() for _ in range(PLAYERS - 1)]
+        for card in hand:
+            for i in range(PLAYERS - 1):
+                self._possible_cards[i].remove(card)
 
-    def _play_phase_pre_play_update(self, game, card):
-        player = game.phasing_player
+    def moved_cards(self, cards):
+        self._possible_cards[0].extend(cards)
 
-        for i in range(PLAYERS):
-            for j in range(PLAYERS - 1):
-                try:
-                    self._possible_cards[i][j].remove(card)
-                except ValueError:
-                    pass
-
-        if game.pot.is_empty():
-            return
-
-        pot_colour = game.pot.get_pot_colour()
-        if pot_colour == card.colour:
-            return
-
-        for i in range(PLAYERS):
-            if i == player:
-                continue
-            j = (player - i) % PLAYERS - 1
-            self._possible_cards[i][j] = [c for c in self._possible_cards[i][j]
-                                          if c.colour != pot_colour]
-
-    def _moving_pre_play_update(self, game, cards):
-        player = game.phasing_player
-
+    def received_cards(self, cards):
         for card in cards:
             for i in range(0, PLAYERS - 1):
-                self._possible_cards[(player + 1) % PLAYERS][i].remove(card)
+                self._possible_cards[i].remove(card)
 
-            self._possible_cards[player][0].append(card)
-
-    def _declaration_pre_play_update(self, game, cards):
-        player = game.phasing_player
-
-        for i in range(PLAYERS):
-            if i == player:
-                continue
-            for j in range(PLAYERS - 1):
-                if (i + j + 1) % PLAYERS == player:
-                    continue
-                for card in cards:
-                    if card in self._possible_cards[i][j]:
-                        self._possible_cards[i][j].remove(card)
-
-    def get_observations(self, player):
-        return {'possible_cards': self._possible_cards[player]}
-
-
-class ScoreTracker(Tracker):
-    def reset(self, hands, starting_player):
-        self._score = [0 for _ in range(PLAYERS)]
-
-    def post_play_update(self, game):
-        if not game.pot.is_empty() or len(game.pot_history) == 0:
+    def declaration_pre_play_update(self, player, declared_cards):
+        if player == 0:
             return
 
-        last_pot = game.pot_history[-1]
-        self._score[last_pot.get_pot_owner()] += last_pot.get_point_value()
+        for i in range(PLAYERS - 1):
+            if player == i + 1:
+                continue
+            for card in declared_cards:
+                if card in self._possible_cards[i]:
+                    self._possible_cards[i].remove(card)
+
+    def get_observations(self):
+        return {'possible_cards': self._possible_cards}
+
+
+class ScoreTracker(PublicTracker):
+    def reset(self, starting_player):
+        self._score = [0 for _ in range(PLAYERS)]
+
+    def post_play_update(self, pot):
+        self._score[pot.get_pot_owner()] += pot.get_point_value()
 
     def get_observations(self, player):
         return {
@@ -179,16 +256,12 @@ class ScoreTracker(Tracker):
         }
 
 
-class DurchEligibilityTracker(Tracker):
-    def reset(self, hands, starting_player):
+class DurchEligibilityTracker(PublicTracker):
+    def reset(self, starting_player):
         self._took_card = np.full(PLAYERS, False)
 
-    def post_play_update(self, game):
-        if not game.pot.is_empty() or len(game.pot_history) == 0:
-            return
-
-        last_pot = game.pot_history[-1]
-        pot_owner = last_pot.get_pot_owner()
+    def post_play_update(self, pot):
+        pot_owner = pot.get_pot_owner()
         self._took_card[pot_owner] = True
 
     def get_observations(self, player):
@@ -204,43 +277,41 @@ class DurchEligibilityTracker(Tracker):
         return {'eligible_durch': ret}
 
 
-class MovedCardsTracker(Tracker):
-    def reset(self, hands, starting_player):
-        self._moved_cards = [[]] * PLAYERS
+class MovedCardsTracker(PrivateTracker):
+    def reset(self, hand, starting_player):
+        self._moved_cards = []
 
-    def _moving_pre_play_update(self, game, cards):
-        player = game.phasing_player
-        self._moved_cards[player] = cards
+    def moved_cards(self, cards):
+        self._moved_cards = cards
 
-    def get_observations(self, player):
-        return {'moved_cards': self._moved_cards[player]}
-
-
-class ReceivedCarsTracker(Tracker):
-    def reset(self, hands, starting_player):
-        self._moved_cards = [[]] * PLAYERS
-
-    def _moving_pre_play_update(self, game, cards):
-        player = game.phasing_player
-        self._moved_cards[(player + 1) % PLAYERS] = cards
-
-    def get_observations(self, player):
-        return {'received_cards': self._moved_cards[player]}
+    def get_observations(self):
+        return {'moved_cards': self._moved_cards}
 
 
-class DoubledCardsTracker(Tracker):
-    def reset(self, hands, starting_player):
+class ReceivedCarsTracker(PrivateTracker):
+    def reset(self, hand, starting_player):
+        self._moved_cards = []
+
+    def received_cards(self, cards):
+        self._moved_cards = cards
+
+    def get_observations(self):
+        return {'received_cards': self._moved_cards}
+
+
+class DoubledCardsTracker(PublicTracker):
+    def reset(self, starting_player):
         self._doubled = [False, False]
         self._player = [None, None]
 
-    def _declaration_pre_play_update(self, game, cards):
-        if Card(1, 6) in cards:
+    def declaration_pre_play_update(self, player, declared_cards):
+        if Card(1, 6) in declared_cards:
             self._doubled[0] = True
-            self._player[0] = game.phasing_player
+            self._player[0] = player
 
-        if Card(2, 6) in cards:
+        if Card(2, 6) in declared_cards:
             self._doubled[1] = True
-            self._player[1] = game.phasing_player
+            self._player[1] = player
 
     def get_observations(self, player):
         return {
@@ -249,13 +320,13 @@ class DoubledCardsTracker(Tracker):
         }
 
 
-class DurchDeclarationTracker(Tracker):
-    def reset(self, hands, starting_player):
+class DurchDeclarationTracker(PublicTracker):
+    def reset(self, starting_player):
         self._declared = np.full(PLAYERS, 0.0)
 
-    def _durch_pre_play_update(self, game, declared):
+    def durch_pre_play_update(self, player, declared):
         if declared:
-            self._declared[game.phasing_player] = 1
+            self._declared[player] = 1
 
     def get_observations(self, player):
         return {'declared_durch': _offset_array(self._declared, player)}

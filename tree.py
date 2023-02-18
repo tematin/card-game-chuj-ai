@@ -235,7 +235,7 @@ class Ensamble(ValueAgent):
 agent = phase_one('10_190')
 other_agent = phase_one('8_190')
 
-tester = Tester(50, other_agent)
+tester = Tester(25, other_agent)
 
 reward = RewardsCombiner([
     OrdinaryReward(1 / 3),
@@ -266,18 +266,32 @@ tester.evaluate(ts_agent, verbose=2)
 
 self = ts_agent
 
+hands = deepcopy(tester._hands_list[27])
+
 game = TrackedGameRound(
-    hands=generate_hands(),
+    hands=deepcopy(hands), #generate_hands(),
     starting_player=np.random.randint(3)
 )
+
+
+while not game.end:
+    observation, actions = game.observe()
+    if game.phase == GamePhase.PLAY:
+        observation, actions = game.observe()
+        action = ts_agent.play(observation, actions)
+    else:
+        action = other_agent.play(*game.observe())
+
+    print(action)
+    game.play(action)
 
 
 
 while not game.end:
     if game.phasing_player == 0 and game.phase == GamePhase.PLAY:
-        raise
         observation, actions = game.observe()
         action = ts_agent.play(observation, actions)
     else:
         action = agent.play(*game.observe())
+    print(action)
     game.play(action)

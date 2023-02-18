@@ -4,7 +4,7 @@ from typing import List, Optional, Any, Tuple
 import numpy as np
 
 from game.constants import PLAYERS, CARDS_PER_PLAYER, DURCH_SCORE
-from game.stat_trackers import Tracker, get_all_trackers
+from game.stat_trackers import GameTrackerManager, get_default_tracker
 from game.utils import advance_player, is_eligible_choice, get_eligible_choices, Card, \
     get_deck, GamePhase
 
@@ -391,25 +391,24 @@ class DeclarationPhase:
                          if x in self._allowed_doubling_cards
                          and x not in self._doubled_cards]
         for i in range(len(allowed_cards) + 1):
-            ret.extend(list(combinations(allowed_cards, i)))
+            ret.extend(sorted(list(combinations(allowed_cards, i))))
 
         return ret
 
 
 class TrackedGameRound:
     def __init__(self, starting_player: int, hands: List[Hand],
-                 trackers: Optional[List[Tracker]] = None) -> None:
+                 tracker: Optional[GameTrackerManager] = None) -> None:
         self._game = MovingPhase(
             starting_player=starting_player,
             hands=hands
         )
 
-        if trackers is None:
-            trackers = get_all_trackers()
-        self._trackers = trackers
+        if tracker is None:
+            tracker = get_default_tracker()
+        self._tracker = tracker
 
-        for tracker in self._trackers:
-            tracker.reset(hands, starting_player)
+        self._tracker.reset(hands, starting_player)
 
         self._end = False
 
@@ -427,21 +426,23 @@ class TrackedGameRound:
         else:
             observation['pot'] = Pot(0)
 
-        for tracker in self._trackers:
-            tracker_observation = tracker.get_observations(player)
-            observation.update(tracker_observation)
+        tracker_observation = self._tracker.get_observations(player)
+        observation.update(tracker_observation)
 
         return observation, self._game.eligible_choices()
 
     def play(self, action):
-        for tracker in self._trackers:
-            tracker.pre_play_update(self._game, action)
+        self._tracker.pre_play_update(
+            phase=self.phase,
+            player=self.phasing_player,
+            action=action,
+            pot=self._game.pot if self._game.phase == GamePhase.PLAY else None
+        )
 
         self._game.play(action)
 
-        if self._game.phase == GamePhase.PLAY:
-            for tracker in self._trackers:
-                tracker.post_play_update(self._game)
+        if self._game.phase == GamePhase.PLAY and self._game.pot.is_empty():
+            self._tracker.post_play_update(self._game.pot_history[-1])
 
         if self._game.end:
             if self._game.phase == GamePhase.PLAY:
