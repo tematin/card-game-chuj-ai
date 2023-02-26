@@ -22,6 +22,22 @@ def get_default_tracker():
     ])
 
 
+def get_partial_default_tracker():
+    return PartialGameTrackerManager([
+        DurchDeclarationTracker(),
+        ScoreTracker(),
+        DoubledCardsTracker(),
+        DurchEligibilityTracker(),
+        HistoryTracker(),
+        PlayedCardsTracker(),
+        StartingPlayerTracker()
+    ], [
+        MovedCardsTracker(),
+        ReceivedCarsTracker(),
+        RemainingPossibleCardsTracker(),
+    ])
+
+
 class GameTrackerManager:
     def __init__(self, public_trackers, private_trackers):
         self._public_trackers = public_trackers
@@ -75,6 +91,66 @@ class GameTrackerManager:
             ret.update(tracker.get_observations(player))
 
         for tracker in self._private_trackers[player]:
+            ret.update(tracker.get_observations())
+
+        return ret
+
+
+class PartialGameTrackerManager:
+    def __init__(self, public_trackers, private_trackers):
+        self._public_trackers = public_trackers
+        self._private_trackers = private_trackers
+
+    def reset(self, hand, starting_player):
+        for tracker in self._public_trackers:
+            tracker.reset(starting_player)
+
+        for tracker in self._private_trackers:
+            tracker.reset(hand, starting_player)
+
+    def received_cards(self, cards):
+        for tracker in self._private_trackers:
+            tracker.received_cards(cards)
+
+    def moved_cards(self, cards):
+        for tracker in self._private_trackers:
+            tracker.moved_cards(cards)
+
+    def pre_play_update(self, phase, player, action, pot=None):
+        if phase == GamePhase.DURCH:
+            for tracker in self._yield_all_trackers():
+                tracker.durch_pre_play_update(player, action)
+        elif phase == GamePhase.DECLARATION:
+            for tracker in self._yield_all_trackers():
+                tracker.declaration_pre_play_update(player, action)
+        elif phase == GamePhase.PLAY:
+            for tracker in self._yield_all_trackers():
+                tracker.play_phase_pre_play_update(player, action, pot)
+        elif phase == GamePhase.MOVING:
+            for tracker in self._private_trackers[player]:
+                tracker.moved_cards(action)
+            for tracker in self._private_trackers[(player + 1) % PLAYERS]:
+                tracker.received_cards(action)
+        else:
+            raise RuntimeError()
+
+    def post_play_update(self, pot):
+        for tracker in self._yield_all_trackers():
+            tracker.post_play_update(pot)
+
+    def _yield_all_trackers(self):
+        for tracker in self._public_trackers:
+            yield tracker
+
+        for tracker in self._private_trackers:
+            yield tracker
+
+    def get_observations(self):
+        ret = {}
+        for tracker in self._public_trackers:
+            ret.update(tracker.get_observations(0))
+
+        for tracker in self._private_trackers:
             ret.update(tracker.get_observations())
 
         return ret
@@ -181,9 +257,9 @@ class HistoryTracker(PublicTracker):
 
     def get_observations(self, player):
         return {
-            'declaration_history': self._declaration_phase,
-            'durch_history': self._durch_phase,
-            'play_history': self._play_phase
+            'declaration_history': self._rotate_player(player, self._declaration_phase),
+            'durch_history': self._rotate_player(player, self._durch_phase),
+            'play_history': self._rotate_player(player, self._play_phase)
         }
 
     def _rotate_player(self, player, items):
@@ -239,6 +315,27 @@ class RemainingPossibleCardsTracker(PrivateTracker):
                 if card in self._possible_cards[i]:
                     self._possible_cards[i].remove(card)
 
+    def play_phase_pre_play_update(self, player, card, pot):
+        if player == 0:
+            return
+
+        for i in range(PLAYERS - 1):
+            try:
+                self._possible_cards[i].remove(card)
+            except ValueError:
+                pass
+
+        if pot.is_empty():
+            return
+
+        pot_colour = pot.get_pot_colour()
+        if pot_colour == card.colour:
+            return
+
+        i = player - 1
+        self._possible_cards[i] = [c for c in self._possible_cards[i]
+                                   if c.colour != pot_colour]
+
     def get_observations(self):
         return {'possible_cards': self._possible_cards}
 
@@ -291,11 +388,17 @@ class MovedCardsTracker(PrivateTracker):
 class ReceivedCarsTracker(PrivateTracker):
     def reset(self, hand, starting_player):
         self._moved_cards = []
+        self._move = False
 
     def received_cards(self, cards):
         self._moved_cards = cards
 
+    def moved_cards(self, cards):
+        self._move = True
+
     def get_observations(self):
+        if not self._move:
+            return {'received_cards': []}
         return {'received_cards': self._moved_cards}
 
 
@@ -307,16 +410,13 @@ class DoubledCardsTracker(PublicTracker):
     def declaration_pre_play_update(self, player, declared_cards):
         if Card(1, 6) in declared_cards:
             self._doubled[0] = True
-            self._player[0] = player
 
         if Card(2, 6) in declared_cards:
             self._doubled[1] = True
-            self._player[1] = player
 
     def get_observations(self, player):
         return {
             'doubled': self._doubled,
-            'player_doubled': self._player
         }
 
 

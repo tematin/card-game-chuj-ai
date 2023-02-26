@@ -269,9 +269,17 @@ self = ts_agent
 hands = deepcopy(tester._hands_list[27])
 
 game = TrackedGameRound(
-    hands=deepcopy(hands), #generate_hands(),
+    hands=generate_hands(),
     starting_player=np.random.randint(3)
 )
+
+observation, actions = game.observe()
+pprint(observation, width=140)
+print(game.phasing_player)
+pprint(actions)
+action = agent.play(observation, actions)
+print(action)
+game.play(action)
 
 
 while not game.end:

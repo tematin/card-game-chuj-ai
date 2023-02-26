@@ -1,33 +1,24 @@
-import itertools
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Optional
 
 import numpy as np
 import torch
 from torch import nn
-from torch.optim.lr_scheduler import StepLR, ExponentialLR
-from tqdm import tqdm
+from torch.optim.lr_scheduler import StepLR
 
-from baselines.baselines import LowPlayer, Agent
-from game.constants import PLAYERS
-from game.environment import Tester, RewardTester, Environment, finish_game, \
-    analyze_game_round
-from game.game import Hand, TrackedGameRound
-from game.rewards import OrdinaryReward, RewardsCombiner, DeclaredDurchRewards, Reward
-from game.utils import generate_hands
-from learners.feature_generators import Lambda2DEmbedder, get_highest_pot_card, \
-    get_pot_value, get_pot_size_indicators, generate_dataset, get_pot_card, \
+from baselines.baselines import LowPlayer
+from game.environment import Tester
+from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
+    TransformedApproximator
+from learners.feature_generators import Lambda2DEmbedder, get_pot_value, \
+    get_pot_size_indicators, get_pot_card, \
     get_card_by_key, get_possible_cards, get_moved_cards, get_play_phase_action, \
     get_flat_by_key, get_declaration_phase_action, get_durch_phase_action, \
     TransformedFeatureGenerator, get_cards_remaining
 from learners.runner import AgentLeague
-
-from model.model import MainNetwork, SimpleNetwork, MainNetworkV2
-from learners.trainers import DoubleTrainer, TrainedDoubleQ
-from learners.approximators import Torch, Buffer, SoftUpdateTorch, TargetTransformer, \
-    Approximator, TransformedApproximator
+from learners.trainers import TrainedDoubleQ
 from learners.transformers import MultiDimensionalScaler, SimpleScaler, ListTransformer
+from model.model import MainNetworkV2
 
 
 def get_agent(path):
@@ -171,6 +162,26 @@ def get_agent2(path):
     return agent
 
 
+t = Tester(100, LowPlayer())
+t.evaluate(get_agent(Path('runs/baseline_run_10/episode_190000')), verbose=2)
+
+
+#Ratio Achieved: 14.6% +- 1.7%
+#Score Achieved: 2.82 +- 0.37
+#Average Total Score: 19.143333333333334
+#Durch Made: 29
+#Total Durch Made: 29
+
+
+t = Tester(30, get_agent(Path('runs/baseline_run_10/episode_190000')))
+t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
+
+t = Tester(30, get_agent(Path('runs/baseline_run_8/episode_190000')))
+t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
+
+t = Tester(30, get_agent(Path('runs/baseline_run_5/episode_190000')))
+t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
+
 league = AgentLeague(
     seed_agents=[
         get_agent(Path('runs/baseline_run_6/episode_90000')),
@@ -183,13 +194,3 @@ league = AgentLeague(
 
 league._points()
 league._avg_score()
-
-t = Tester(30, get_agent(Path('runs/baseline_run_10/episode_190000')))
-t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
-
-t = Tester(30, get_agent(Path('runs/baseline_run_8/episode_190000')))
-t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
-
-t = Tester(30, get_agent(Path('runs/baseline_run_5/episode_190000')))
-t.evaluate(get_agent2(Path('runs/baseline_run_13/episode_200000')), verbose=2)
-
