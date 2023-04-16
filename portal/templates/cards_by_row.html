@@ -1,0 +1,13 @@
+{% for cards in cards_list %}
+    <div class="row">
+        <div class="col">
+            {% for card in cards %}
+            <div class="row_items">
+                <input class="selectable" type="image" id="{{ card }}" src="images/{{ card }}.png" width="98" height="168"/>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+{% endfor %}
+
+<h4 class="center"><span class="badge bg-info text-dark value_labels" id="value_label"></span></h4>

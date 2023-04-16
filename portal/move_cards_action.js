@@ -1,23 +1,30 @@
 class SelectableButtons {
-    constructor(min_items, max_items, next_id, submit_callback, change_callback, allowed_cards) {
-        this.min_items = min_items;
-        this.max_items = max_items;
+    constructor(options) {
+        this.min_items = options['min_items'];
+        this.max_items = options['max_items'];
+
+        if (options['grayscale'] ?? false) {
+            this.unselected_name = 'g';
+            this.selected_name = '';
+        } else {
+            this.unselected_name = '';
+            this.selected_name = 's';
+        }
 
         this.buttons = $('.selectable');
 
-        if (next_id == '') {
-            this.next = null;
-        } else {
-            this.next = $('#' + next_id);
+        this.next = options['next_id'] ?? null;
+        if (this.next !== null) {
+            this.next = $('#' + this.next);
             this.setup_next_button();
         }
 
         this.selected_buttons = [];
-        this.submit_callback = submit_callback;
-        this.change_callback = change_callback;
+        this.submit_callback = options['submit_callback'] ?? ((x) => {eel.register_action(x)});
+        this.change_callback = options['change_callback'] ?? (() => {});
         this.change_callback([]);
 
-        this.allowed_cards = allowed_cards;
+        this.allowed_cards = options['allowed_cards'] ?? [];
 
         this.setup_buttons();
     }
@@ -32,19 +39,21 @@ class SelectableButtons {
     }
 
     setup_buttons() {
+        eel.log(this.unselected_name);
         this.buttons.each((i, button) => {
             let jq_button = $('#' + button.id);
+            jq_button.attr("src", 'images/' + this.unselected_name + button.id + '.png');
             jq_button.on("click", () => {
                 if (this.selected_buttons.includes(button.id)) {
                     this.selected_buttons = this.selected_buttons.filter(item => item !== button.id);
-                    jq_button.attr("src", 'images/' + button.id + '.png');
+                    jq_button.attr("src", 'images/' + this.unselected_name + button.id + '.png');
                     this.change_callback(this.selected_buttons);
                 } else {
                     if (this.selected_buttons.length >= this.max_items) return;
                     if (this.allowed_cards.length > 0 & !this.allowed_cards.includes(button.id)) return;
 
                     this.selected_buttons.push(button.id);
-                    jq_button.attr("src", 'images/s' + button.id + '.png')
+                    jq_button.attr("src", 'images/' + this.selected_name + button.id + '.png');
                     this.change_callback(this.selected_buttons);
                 }
 
@@ -61,13 +70,17 @@ class SelectableButtons {
 
 eel.expose(init_cards_moving_choice)
 function init_cards_moving_choice(values) {
-    let selectable_buttons = new SelectableButtons(2, 2, "next", (x) => {
-        eel.register_action(x);
-    },
-    (selected_buttons) => {
-        moving_card_values(selected_buttons, values);
-    }, []);
+
+    let selectable_buttons = new SelectableButtons({
+        'min_items': 2,
+        'max_items': 2,
+        'next_id': 'next',
+        'change_callback': (selected_buttons) => {
+            moving_card_values(selected_buttons, values);
+        }
+    });
 }
+
 
 function moving_card_values(selected_buttons, values) {
     fil_values = values.filter(item => selected_buttons.every(x => item[0].includes(x)));
@@ -110,20 +123,47 @@ function init_declaration() {
 }
 
 
-
 eel.expose(init_card_declaration)
 function init_card_declaration(values) {
-    let selectable_buttons = new SelectableButtons(0, 2, "next", (x) => {
-        eel.register_action(x);
-    }, (selected_buttons) => {
-        moving_card_values(selected_buttons, values);
-    }, ['16', '26']);
+    let selectable_buttons = new SelectableButtons({
+        'min_items': 0,
+        'max_items': 2,
+        'next_id': 'next',
+        'change_callback': (selected_buttons) => {
+            moving_card_values(selected_buttons, values);
+        },
+        'allowed_cards': ['16', '26']
+    });
 }
 
 
 eel.expose(init_regular_play)
 function init_regular_play(eligible_actions) {
-    let selectable_buttons = new SelectableButtons(1, 1, "", (x) => {
-        eel.register_action(x);
-    }, () => {}, eligible_actions);
+    let selectable_buttons = new SelectableButtons({
+        'min_items': 1,
+        'max_items': 1,
+        'allowed_cards': eligible_actions
+    });
+}
+
+
+eel.expose(init_starting_hand)
+function init_starting_hand(values) {
+    let selectable_buttons = new SelectableButtons({
+        'min_items': 12,
+        'max_items': 12,
+        'next_id': 'next',
+        'change_callback': update_value,
+        'grayscale': true
+    });
+}
+
+
+async function update_value(selected_buttons) {
+    if (selected_buttons.length != 12) {
+        $('#value_label').html('');
+        return;
+    }
+    let x = await eel.evaluate_hand(selected_buttons)();
+    $('#value_label').html(x);
 }

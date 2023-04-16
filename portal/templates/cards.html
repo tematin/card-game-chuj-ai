@@ -2,7 +2,7 @@
     <div class="col" id="hand_cards">
         {% for card in cards %}
         <div class="row_items">
-            <input class="selectable" type="image" id="{{ card }}" src="images/{{ card }}.png" width="98" height="168"/>
+            <input class="{{ 'selectable' if selectable }}" type="image" id="{{ card if selectable }}" src="images/{{ 'g' if not selectable }}{{ card }}.png" width="98" height="168"/>
             <br>
             <h4 class="center"><span class="badge bg-info text-dark value_labels" id="num_val_{{ card }}">{{ values[card] }}</span></h4>
         </div>

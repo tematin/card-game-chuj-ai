@@ -1,0 +1,79 @@
+<div class="row minh300">
+    <div class="col-4">
+        <h2>Jozo</h2>
+        {% if declared_durch[2] %}
+            <h4><span class="badge bg-danger"> Hlaseny Durch </span></h4>
+        {% endif %}
+        {% if durch_possible[2] %}
+            <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+        {% endif %}
+        <h4><span class="badge bg-secondary"> Body: {{ score[2] }} </span></h4>
+
+        {% for card in second_player_cards %}
+            <input type="image" src="images/{{'g' if not second_player_selectable}}{{ card }}.png" width="61" height="96"
+                   id="{{ card if second_player_selectable }}" class="{{ 'selectable' if second_player_selectable }}"/>
+        {% endfor %}
+    </div>
+
+    <div class="col-1">
+        <h2>.</h2>
+        {% for card in second_player_board %}
+            <input type="image" src="images/{{'g' if not second_player_selectable}}{{ card }}.png" width="61" height="96"
+                   id="{{ card if second_player_selectable }}" class="{{ 'selectable' if second_player_selectable }}"/>
+        {% endfor %}
+    </div>
+
+    <div class="col-2">
+        <h2>.</h2>
+        <div class="row">
+            <div class="col">
+                <div style="display: flex; align-items: center; justify-content: center; height: 10vh;">
+                    <input type="image" src="images/{{ pot[2] }}.png" />
+                    <input type="image" src="images/{{ pot[1] }}.png" />
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div style="display: flex; align-items: center; justify-content: center; height: 10vh;">
+                    <input type="image" src="images/{{ pot[0] }}.png" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-1">
+        <h2>.</h2>
+        {% for card in first_player_board %}
+            <input type="image" src="images/{{'g' if not first_player_selectable}}{{ card }}.png" width="61" height="96"
+                   id="{{ card if first_player_selectable }}"  class="{{ 'selectable' if first_player_selectable }}"/>
+        {% endfor %}
+    </div>
+
+    <div class="col-4">
+        <h2>Fero</h2>
+        {% if declared_durch[1] %}
+            <h4><span class="badge bg-danger"> Hlaseny Durch </span></h4>
+        {% endif %}
+        {% if durch_possible[1] %}
+            <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+        {% endif %}
+        <h4><span class="badge bg-secondary"> Body: {{ score[1] }} </span></h4>
+        {% for card in first_player_cards %}
+            <input type="image" src="images/{{'g' if not first_player_selectable}}{{ card }}.png" width="61" height="96"
+                   id="{{ card if first_player_selectable }}" class="{{ 'selectable' if first_player_selectable }}"/>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="row">
+    <div class="col">
+    {% if declared_durch[0] %}
+        <h4><span class="badge bg-danger"> Hlaseny Durch </span></h4>
+    {% endif %}
+    {% if durch_possible[0] %}
+        <h4><span class="badge bg-primary"> Mozny Durch </span></h4>
+    {% endif %}
+    <h4><span class="badge bg-secondary"> Body: {{ score[0] }} </span></h4>
+    </div>
+</div>

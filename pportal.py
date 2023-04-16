@@ -167,6 +167,7 @@ while True:
 
     while not game.end:
         observation, actions = game.observe()
+        print(observation.keys())
         values = agent.debug(observation, actions)['q_avg']
         display_observations(observation)
         display_hand(observation, actions, values)

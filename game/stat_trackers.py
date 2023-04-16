@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from typing import Optional
 
 import numpy as np
 from .constants import PLAYERS
@@ -410,13 +411,19 @@ class DoubledCardsTracker(PublicTracker):
     def declaration_pre_play_update(self, player, declared_cards):
         if Card(1, 6) in declared_cards:
             self._doubled[0] = True
+            self._player[0] = player
 
         if Card(2, 6) in declared_cards:
             self._doubled[1] = True
+            self._player[1] = player
 
     def get_observations(self, player):
         return {
             'doubled': self._doubled,
+            'player_doubled': [
+                _offset_player(self._player[0], player),
+                _offset_player(self._player[1], player)
+            ]
         }
 
 
@@ -436,5 +443,7 @@ def _offset_array(x, player):
     return [x[(player + j) % PLAYERS] for j in range(PLAYERS)]
 
 
-def _offset_player(absolute_player: int, relative_for: int) -> int:
+def _offset_player(absolute_player: Optional[int], relative_for: int) -> Optional[int]:
+    if absolute_player is None:
+        return None
     return (absolute_player - relative_for) % PLAYERS
